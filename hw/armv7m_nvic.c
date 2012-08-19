@@ -403,7 +403,7 @@ static Property armv7m_nvic_properties[] = {
      * IRQ lines. We default to 64. Other boards may differ and should
      * set this property appropriately.
      */
-    DEFINE_PROP_UINT32("num-irq", nvic_state, num_irq, 64),
+    DEFINE_PROP_UINT32("num-irq", nvic_state, num_irq, 128),
     DEFINE_PROP_END_OF_LIST(),
 };
 

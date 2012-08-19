@@ -327,6 +327,7 @@ obj-sparc-y += cs4231.o eccmemctl.o sbi.o sun4c_intctl.o leon3.o
 obj-sparc-y += grlib_gptimer.o grlib_irqmp.o grlib_apbuart.o
 endif
 
+QEMU_CFLAGS+=-I$(SRC_PATH)/../include
 obj-arm-y = integratorcp.o versatilepb.o arm_pic.o arm_timer.o
 obj-arm-y += arm_boot.o pl011.o pl031.o pl050.o pl080.o pl110.o pl181.o pl190.o
 obj-arm-y += versatile_pci.o
@@ -343,6 +344,7 @@ obj-arm-y += exynos4210_pmu.o exynos4210_mct.o exynos4210_fimd.o
 obj-arm-y += arm_l2x0.o
 obj-arm-y += arm_mptimer.o a15mpcore.o
 obj-arm-y += armv7m.o armv7m_nvic.o stellaris.o pl022.o stellaris_enet.o
+obj-arm-y += atlantronic.o
 obj-arm-y += highbank.o
 obj-arm-y += pl061.o
 obj-arm-y += xgmac.o
