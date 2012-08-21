@@ -406,9 +406,10 @@ int cpu_exec(CPUArchState *env)
                        the stack if an interrupt occurred at the wrong time.
                        We avoid this by disabling interrupts when
                        pc contains a magic address.  */
+					// patch special v7m pour gerer la desactivation des IT via CPSID I !!
                     if (interrupt_request & CPU_INTERRUPT_HARD
-                        && ((IS_M(env) && env->regs[15] < 0xfffffff0)
-                            || !(env->uncached_cpsr & CPSR_I))) {
+						&& !(env->uncached_cpsr & CPSR_I)
+						&& (IS_M(env) ? env->regs[15] < 0xfffffff0: 1) ) {
                         env->exception_index = EXCP_IRQ;
                         do_interrupt(env);
                         next_tb = 0;
