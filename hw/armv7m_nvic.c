@@ -193,14 +193,6 @@ static uint32_t nvic_readl(void *opaque, uint32_t offset)
     case 0xd14: /* Configuration Control.  */
         /* TODO: Implement Configuration Control bits.  */
         return 0;
-    case 0xd18: case 0xd1c: case 0xd20: /* System Handler Priority.  */
-        irq = offset - 0xd14;
-        val = 0;
-        val |= s->gic.priority1[irq++][0];
-        val |= s->gic.priority1[irq++][0] << 8;
-        val |= s->gic.priority1[irq++][0] << 16;
-        val |= s->gic.priority1[irq][0] << 24;
-        return val;
     case 0xd24: /* System Handler Status.  */
         val = 0;
         if (s->gic.irq_state[ARMV7M_EXCP_MEM].active) val |= (1 << 0);
@@ -333,17 +325,6 @@ static void nvic_writel(void *opaque, uint32_t offset, uint32_t value)
     case 0xd14: /* Configuration Control.  */
         /* TODO: Implement control registers.  */
         goto bad_reg;
-    case 0xd18: case 0xd1c: case 0xd20: /* System Handler Priority.  */
-        {
-            int irq;
-            irq = offset - 0xd14;
-            s->gic.priority1[irq++][0] = value & 0xff;
-            s->gic.priority1[irq++][0] = (value >> 8) & 0xff;
-            s->gic.priority1[irq++][0] = (value >> 16) & 0xff;
-            s->gic.priority1[irq][0] = (value >> 24) & 0xff;
-            gic_update(&s->gic);
-        }
-        break;
     case 0xd24: /* System Handler Control.  */
         /* TODO: Real hardware allows you to set/clear the active bits
            under some circumstances.  We don't implement this.  */

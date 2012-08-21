@@ -413,6 +413,11 @@ static uint32_t gic_dist_readb(void *opaque, target_phys_addr_t offset)
             if (GIC_TEST_TRIGGER(irq + i))
                 res |= (2 << (i * 2));
         }
+#else
+    } else if (0xd18 <= offset && offset < 0xd24) {
+        /* System Handler Priority.  */
+        irq = offset - 0xd14;
+        res = GIC_GET_PRIORITY(irq, cpu);
 #endif
     } else if (offset < 0xfe0) {
         goto bad_reg;
@@ -444,7 +449,8 @@ static uint32_t gic_dist_readl(void *opaque, target_phys_addr_t offset)
     gic_state *s = (gic_state *)opaque;
     uint32_t addr;
     addr = offset;
-    if (addr < 0x100 || addr > 0xd00)
+    if (addr < 0x100 || (addr > 0xd00 && addr != 0xd18 && addr != 0xd1c
+        && addr != 0xd20))
         return nvic_readl(s, addr);
 #endif
     val = gic_dist_readw(opaque, offset);
@@ -587,6 +593,11 @@ static void gic_dist_writeb(void *opaque, target_phys_addr_t offset,
                 GIC_CLEAR_TRIGGER(irq + i);
             }
         }
+#else
+    } else if (0xd18 <= offset && offset < 0xd24) {
+        /* System Handler Priority.  */
+        irq = offset - 0xd14;
+        s->priority1[irq][0] = value & 0xff;
 #endif
     } else {
         /* 0xf00 is only handled for 32-bit writes.  */
@@ -612,7 +623,8 @@ static void gic_dist_writel(void *opaque, target_phys_addr_t offset,
 #ifdef NVIC
     uint32_t addr;
     addr = offset;
-    if (addr < 0x100 || (addr > 0xd00 && addr != 0xf00)) {
+    if (addr < 0x100 || (addr > 0xd00 && addr != 0xd18 && addr != 0xd1c
+        && addr != 0xd20 && addr != 0xf00)) {
         nvic_writel(s, addr, value);
         return;
     }
