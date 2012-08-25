@@ -256,6 +256,7 @@ type_init(atlantronic_rcc_register_types);
 struct atlantronic_usb_state
 {
 	SysBusDevice busdev;
+	CharDriverState *chr;
 	MemoryRegion iomem;
 	USB_OTG_GREGS gregs;
 	USB_OTG_DEV dev;
@@ -619,8 +620,6 @@ static void atlantronic_usb_write_dineps(struct atlantronic_usb_state *usb, targ
 		return;
 	}
 
-	printf("dineps : write acces offset %x (=> i = %d) -- val = %lx\n", offset, i, val);
-
 	switch(offset % sizeof(USB_OTG_DINEPS))
 	{
 		case offsetof(USB_OTG_DINEPS, DIEPCTLx):
@@ -653,7 +652,6 @@ static void atlantronic_usb_write_dineps(struct atlantronic_usb_state *usb, targ
 				int xfrsiz = usb->dineps[i].DIEPTSIZx & 0x7ffff;
 				if(xfrsiz <= usb->tx_count[i])
 				{
-					printf("complete\n");
 					usb->tx_count[i] = 0;
 					usb->dineps[i].DIEPINTx |= 0x01; // xfrc
 					usb->gregs.GINTSTS |= 0x40000;   // IT in EP (inepint)
@@ -797,12 +795,20 @@ static void atlantronic_usb_write_fifo(struct atlantronic_usb_state *usb, target
 
 	if(i >= NUM_TX_FIFOS)
 	{
-		printf("Error : USB forbiden fifo read acces offset %x (=> i = %d)\n", offset, i);
+		printf("Error : USB forbiden fifo write acces offset %x (=> i = %d)\n", offset, i);
 		return;
 	}
 
-	// TODO : envoyer sur une socket ou pipe ?
-	printf("Error : write fifo à implementer - offset %x (=> i = %d) val %lx\n", offset, i, val);
+	int remain = (usb->dineps[i].DIEPTSIZx & 0x7ffff) - usb->tx_count[i];
+	if(remain > 0)
+	{
+		if(size > remain)
+		{
+			size = remain;
+		}
+
+		qemu_chr_fe_write(usb->chr, (const uint8_t *)&val, size);
+	}
 
 	usb->tx_count[i] += size;
 }
@@ -891,6 +897,12 @@ static int atlantronic_usb_init(SysBusDevice * dev)
 	memory_region_init_io(&s->iomem, &atlantronic_usb_ops, s, "atlantronic_usb", 0x10000);
 	sysbus_init_mmio(dev, &s->iomem);
 	sysbus_init_irq(dev, &s->irq);
+
+	s->chr = qemu_chr_find("foo_usb");
+	if( s->chr == NULL)
+	{
+		hw_error("chardev foo_usb not found");
+	}
 
 	atlantronic_usb_reset(s);
 
