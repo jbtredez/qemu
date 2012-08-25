@@ -152,6 +152,11 @@ static void armv7m_reset(void *opaque)
     cpu_state_reset((CPUARMState *)opaque);
 }
 
+static uint64_t translate_kernel_address(void *opaque, uint64_t addr)
+{
+    return addr - 0x8000000LL;
+}
+
 /* Init CPU and memory for a v7-M based board.
    flash_size and sram_size are in kb.
    Returns the NVIC array.  */
@@ -173,6 +178,7 @@ qemu_irq *armv7m_init(MemoryRegion *address_space_mem,
     MemoryRegion *sram = g_new(MemoryRegion, 1);
     MemoryRegion *flash = g_new(MemoryRegion, 1);
     MemoryRegion *hack = g_new(MemoryRegion, 1);
+    MemoryRegion *flash_alias = g_new(MemoryRegion, 1);
 
     flash_size *= 1024;
     sram_size *= 1024;
@@ -201,7 +207,9 @@ qemu_irq *armv7m_init(MemoryRegion *address_space_mem,
     memory_region_init_ram(flash, "armv7m.flash", flash_size);
     vmstate_register_ram_global(flash);
     memory_region_set_readonly(flash, true);
-    memory_region_add_subregion(address_space_mem, 0, flash);
+    memory_region_add_subregion(address_space_mem, 0x8000000, flash);
+    memory_region_init_alias(flash_alias, "armv7m.flash_alias", flash, 0, flash_size);
+    memory_region_add_subregion(address_space_mem, 0, flash_alias);
     memory_region_init_ram(sram, "armv7m.sram", sram_size);
     vmstate_register_ram_global(sram);
     memory_region_add_subregion(address_space_mem, 0x20000000, sram);
@@ -223,7 +231,7 @@ qemu_irq *armv7m_init(MemoryRegion *address_space_mem,
     big_endian = 0;
 #endif
 
-    image_size = load_elf(kernel_filename, NULL, NULL, &entry, &lowaddr,
+    image_size = load_elf(kernel_filename, translate_kernel_address, NULL, &entry, &lowaddr,
                           NULL, big_endian, ELF_MACHINE, 1);
     if (image_size < 0) {
         image_size = load_image_targphys(kernel_filename, 0, flash_size);
