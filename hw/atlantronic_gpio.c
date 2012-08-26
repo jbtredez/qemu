@@ -107,12 +107,6 @@ static const MemoryRegionOps atlantronic_gpio_ops =
 
 static void atlantronic_gpio_in_recv(void * opaque, int numPin, int level)
 {
-	if(numPin >= 8 || numPin < 0)
-	{
-		hw_error("gpio it on pin %d - lv %d\n", numPin, level);
-		return;
-	}
-
     struct atlantronic_gpio_state *s = opaque;
 
 	if(level)

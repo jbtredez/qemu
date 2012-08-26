@@ -37,9 +37,31 @@ static void atlantronic_foo_init(ram_addr_t ram_size,
 	qemu_set_irq(qdev_get_gpio_in(gpioa, 2), 1);
 	qemu_set_irq(qdev_get_gpio_in(gpioa, 3), 1);
 
+	// tim
+	DeviceState* tim1 = sysbus_create_simple("atlantronic-tim", TIM1_BASE, NULL);
+	DeviceState* tim2 = sysbus_create_simple("atlantronic-tim", TIM2_BASE, NULL);
+	sysbus_create_simple("atlantronic-tim", TIM3_BASE, NULL);
+	DeviceState* tim4 = sysbus_create_simple("atlantronic-tim", TIM4_BASE, NULL);
+	sysbus_create_simple("atlantronic-tim", TIM5_BASE, NULL);
+	sysbus_create_simple("atlantronic-tim", TIM6_BASE, NULL);
+	sysbus_create_simple("atlantronic-tim", TIM7_BASE, NULL);
+	sysbus_create_simple("atlantronic-tim", TIM8_BASE, NULL);
+
 	// usb
 	DeviceState* usbDev = sysbus_create_simple("atlantronic-usb", USB_OTG_FS_BASE_ADDR, NULL);
 	sysbus_connect_irq(sysbus_from_qdev(usbDev), 0, pic[OTG_FS_IRQn]);
+
+	// modele
+	DeviceState* model = sysbus_create_simple("atlantronic-model", 0, NULL);
+	qdev_connect_gpio_out(tim2, 0, qdev_get_gpio_in(model, 0)); // encodeur 1 (droite)
+	qdev_connect_gpio_out(tim4, 0, qdev_get_gpio_in(model, 1)); // encodeur 2 (gauche)
+	qdev_connect_gpio_out(tim1, 1, qdev_get_gpio_in(model, 2)); // pwm 1 (droite)
+	qdev_connect_gpio_out(tim1, 2, qdev_get_gpio_in(model, 3)); // pwm 2 (gauche)
+	qdev_connect_gpio_out(tim1, 3, qdev_get_gpio_in(model, 4)); // pwm 3
+	qdev_connect_gpio_out(tim1, 4, qdev_get_gpio_in(model, 5)); // pwm 4
+
+	qdev_connect_gpio_out(model, 0, qdev_get_gpio_in(tim2, 0)); // encodeur 1 (droite)
+	qdev_connect_gpio_out(model, 1, qdev_get_gpio_in(tim4, 0)); // encodeur 2 (gauche)
 }
 
 static QEMUMachine atlantronic_foo =
