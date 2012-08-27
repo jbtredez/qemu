@@ -7,8 +7,36 @@
 #include "arm-misc.h"
 #include "boards.h"
 #include "exec-memory.h"
+#include "qemu-thread.h"
 
-////////////////// USB
+#define EVENT_DATA_SIZE             128
+#define EVENT_NUM                  1024
+
+enum atlantronic_event_type
+{
+	ATLANTRONIC_EVENT_SETUP,
+	ATLANTRONIC_EVENT_DATA
+};
+
+struct atlantronic_usb_rx_event
+{
+	uint32_t type;                     //!< type :  setup ou data
+	uint32_t ep;                       //!< numero d'endpoint
+	uint32_t length;                   //!< taille des données
+	union
+	{
+		uint8_t data[EVENT_DATA_SIZE];     //!< données
+		struct
+		{
+			uint8_t setup_request_type;
+			uint8_t setup_request;
+			uint16_t setup_wvalue;
+			uint16_t setup_windex;
+			uint16_t setup_length;
+		};
+	};
+};
+
 struct atlantronic_usb_state
 {
 	SysBusDevice busdev;
@@ -22,11 +50,21 @@ struct atlantronic_usb_state
 	int32_t fifo_start[NUM_TX_FIFOS];
 	int32_t fifo_end[NUM_TX_FIFOS];
 	uint32_t pcgcctl;
+	QemuThread rx_thread_id;
+	struct atlantronic_usb_rx_event event[EVENT_NUM];
+	uint32_t event_start;
+	uint32_t event_end;
+	QemuMutex event_mutex;
+	QemuCond event_cond;
+	QemuCond xfer_complete_cond;
+	QemuMutex xfer_complete_mutex;
 
 	// fifos d'envoi
 	int32_t tx_count[NUM_TX_FIFOS];
 	qemu_irq irq;
 };
+
+static int32_t atlantronic_usb_write_rx_fifo0_data(struct atlantronic_usb_state *usb, const uint8_t* data, uint16_t length);
 
 static void atlantronic_usb_reset(struct atlantronic_usb_state* usb)
 {
@@ -82,6 +120,53 @@ static void atlantronic_usb_reset(struct atlantronic_usb_state* usb)
 	usb->pcgcctl = 0x00;
 }
 
+static void* atlantronic_usb_rx_thread(void* arg)
+{
+	struct atlantronic_usb_state* usb = arg;
+	struct atlantronic_usb_rx_event ev;
+
+	while(1)
+	{
+		qemu_mutex_lock(&usb->event_mutex);
+		qemu_cond_wait(&usb->event_cond, &usb->event_mutex);
+		ev = usb->event[usb->event_start];
+		usb->event_start = (usb->event_start + 1) % EVENT_NUM;
+		qemu_mutex_unlock(&usb->event_mutex);
+
+		USB_OTG_GRXSTSP_TypeDef grxstsp;
+		grxstsp.d32 = usb->gregs.GRXSTSP;
+		if(ev.type == ATLANTRONIC_EVENT_SETUP)
+		{
+			grxstsp.b.pktsts = 6;  // SETUP data packet received (PKTSTS)
+		}
+		else // ATLANTRONIC_EVENT_DATA
+		{
+			grxstsp.b.pktsts = 2;
+		}
+
+		atlantronic_usb_write_rx_fifo0_data(usb, ev.data, ev.length);
+		grxstsp.b.epnum = ev.ep;
+		grxstsp.b.bcnt = ev.length;
+
+		usb->gregs.GRXSTSP = grxstsp.d32;
+		if(ev.ep == 0)
+		{
+			// si ep 0, on gruge, setup done
+			usb->douteps[0].DOEPINTx = 0x08;    // EP0 -> STUP (SETUP phase done)
+		}
+
+		qemu_mutex_lock(&usb->xfer_complete_mutex);
+		usb->gregs.GINTSTS |= 0x10;          // IT RX fifo
+		usb->gregs.GINTSTS |= 0x80000;       // IT out EP
+		qemu_set_irq(usb->irq, 1);
+		qemu_cond_wait(&usb->xfer_complete_cond, &usb->xfer_complete_mutex);
+		qemu_mutex_unlock(&usb->xfer_complete_mutex);
+	}
+
+
+	return 0;
+}
+
 static uint32_t atlantronic_usb_read32_fifo(struct atlantronic_usb_state *usb, int fifo_id)
 {
 	// TODO check sur start et end
@@ -106,13 +191,11 @@ static void atlantronic_usb_write32_fifo(struct atlantronic_usb_state *usb, int 
 	}
 }
 
-static void atlantronic_usb_write_rx_fifo0_req(struct atlantronic_usb_state *usb, uint8_t request_type, uint8_t request, uint16_t wvalue, uint16_t windex, uint16_t length, uint8_t* data)
+static int32_t atlantronic_usb_write_rx_fifo0_data(struct atlantronic_usb_state *usb, const uint8_t* data, uint16_t length)
 {
 	int i = 0;
-	atlantronic_usb_write32_fifo(usb, 0, request_type + (request << 8) + (wvalue << 16));
-	atlantronic_usb_write32_fifo(usb, 0, windex + (length << 16));
-
-	int max = 4*(length << 2);
+	int count = length >> 2;
+	int max = 4 * count;
 	for(i = 0; i < max; i += 4)
 	{
 		atlantronic_usb_write32_fifo(usb, 0, *((uint32_t*) (data + i)));
@@ -121,15 +204,20 @@ static void atlantronic_usb_write_rx_fifo0_req(struct atlantronic_usb_state *usb
 	switch(length - i)
 	{
 		case 1:
+			count++;
 			atlantronic_usb_write32_fifo(usb, 0, data[i]);
 			break;
 		case 2:
+			count++;
 			atlantronic_usb_write32_fifo(usb, 0, data[i] + (data[i+1] << 8) );
 			break;
 		case 3:
+			count++;
 			atlantronic_usb_write32_fifo(usb, 0, data[i] + (data[i+1] << 8) + (data[i+1] << 16));
 			break;
 	}
+
+	return count;
 }
 
 static void atlantronic_usb_write_gregs(struct atlantronic_usb_state *usb, target_phys_addr_t offset, uint64_t val, unsigned size)
@@ -159,12 +247,22 @@ static void atlantronic_usb_write_gregs(struct atlantronic_usb_state *usb, targe
 		case offsetof(USB_OTG_GREGS, GINTSTS):
 			if( (val & 0x1000) && (usb->gregs.GINTSTS & 0x1000)) // clear bit d'IT reset
 			{
-				atlantronic_usb_write_rx_fifo0_req(usb, 0x00, 0x09, 0x01, 0x00, 0x00, NULL);
-				usb->gregs.GRXSTSP |= 0xc0000;       // SETUP data packet received (PKTSTS)
-				usb->gregs.GINTSTS |= 0x10;          // IT RX fifo
-				usb->douteps[0].DOEPINTx = 0x08;    // EP0 -> STUP (SETUP phase done)
-				usb->gregs.GINTSTS |= 0x80000;       // IT out EP
-				qemu_set_irq(usb->irq, 1);
+				qemu_mutex_lock(&usb->event_mutex);
+				if((usb->event_end + 1) % EVENT_NUM != usb->event_start)
+				{
+					// il reste de la place
+					usb->event[usb->event_end].type = ATLANTRONIC_EVENT_SETUP;
+					usb->event[usb->event_end].ep = 0;
+					usb->event[usb->event_end].length = 8;
+					usb->event[usb->event_end].setup_request_type = 0x00;
+					usb->event[usb->event_end].setup_request = 0x09;
+					usb->event[usb->event_end].setup_wvalue = 0x0001;
+					usb->event[usb->event_end].setup_windex = 0x0000;
+					usb->event[usb->event_end].setup_length = 0x0000;
+					usb->event_end = (usb->event_end + 1) % EVENT_NUM;
+				}
+				qemu_cond_signal(&usb->event_cond);
+				qemu_mutex_unlock(&usb->event_mutex);
 			}
 			else
 			{
@@ -484,6 +582,16 @@ static void atlantronic_usb_write_douteps(struct atlantronic_usb_state *usb, tar
 			usb->douteps[i].DOEPCTLx = val;
 			break;
 		case offsetof(USB_OTG_DOUTEPS, DOEPINTx):
+			if(val & 0x01)
+			{
+				// flag xfercompl
+				qemu_mutex_lock(&usb->xfer_complete_mutex);
+				usb->gregs.GINTSTS &= ~0x10;          // IT RX fifo
+				usb->gregs.GINTSTS &= ~0x80000;       // IT out EP
+				qemu_set_irq(usb->irq, 0);
+				qemu_cond_signal(&usb->xfer_complete_cond);
+				qemu_mutex_unlock(&usb->xfer_complete_mutex);
+			}
 			usb->douteps[i].DOEPINTx = val;
 			break;
 		case offsetof(USB_OTG_DOUTEPS, DOEPTSIZx):
@@ -639,6 +747,34 @@ static uint64_t atlantronic_usb_read(void *opaque, target_phys_addr_t offset, un
 	return val;
 }
 
+static int atlantronic_usb_can_receive(void *opaque)
+{
+	return 1;
+}
+
+static void atlantronic_usb_receive(void *opaque, const uint8_t* buf, int size)
+{
+	struct atlantronic_usb_state *usb = opaque;
+
+	qemu_mutex_lock(&usb->event_mutex);
+	if((usb->event_end + 1) % EVENT_NUM != usb->event_start && size < EVENT_DATA_SIZE)
+	{
+		// il reste de la place
+		usb->event[usb->event_end].type = ATLANTRONIC_EVENT_DATA;
+		usb->event[usb->event_end].ep = 2;
+		usb->event[usb->event_end].length = size;
+		memcpy(usb->event[usb->event_end].data, buf, size);
+		usb->event_end = (usb->event_end + 1) % EVENT_NUM;
+	}
+	qemu_cond_signal(&usb->event_cond);
+	qemu_mutex_unlock(&usb->event_mutex);
+}
+
+static void atlantronic_usb_event(void *opaque, int event)
+{
+
+}
+
 static const MemoryRegionOps atlantronic_usb_ops =
 {
 	.read = atlantronic_usb_read,
@@ -659,8 +795,20 @@ static int atlantronic_usb_init(SysBusDevice * dev)
 	{
 		hw_error("chardev foo_usb not found");
 	}
+    else
+	{
+		qemu_chr_add_handlers(s->chr, atlantronic_usb_can_receive, atlantronic_usb_receive, atlantronic_usb_event, s);
+	}
 
 	atlantronic_usb_reset(s);
+
+	s->event_start = 0;
+	s->event_end = 0;
+	qemu_mutex_init(&s->event_mutex);
+	qemu_mutex_init(&s->xfer_complete_mutex);
+	qemu_cond_init(&s->event_cond);
+	qemu_cond_init(&s->xfer_complete_cond);
+	qemu_thread_create(&s->rx_thread_id, atlantronic_usb_rx_thread, s, QEMU_THREAD_JOINABLE);
 
     return 0;
 }
