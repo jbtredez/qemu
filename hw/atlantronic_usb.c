@@ -128,7 +128,11 @@ static void* atlantronic_usb_rx_thread(void* arg)
 	while(1)
 	{
 		qemu_mutex_lock(&usb->event_mutex);
-		qemu_cond_wait(&usb->event_cond, &usb->event_mutex);
+
+		if(usb->event_start == usb->event_end)
+		{
+			qemu_cond_wait(&usb->event_cond, &usb->event_mutex);
+		}
 		ev = usb->event[usb->event_start];
 		usb->event_start = (usb->event_start + 1) % EVENT_NUM;
 		qemu_mutex_unlock(&usb->event_mutex);
@@ -749,7 +753,7 @@ static uint64_t atlantronic_usb_read(void *opaque, target_phys_addr_t offset, un
 
 static int atlantronic_usb_can_receive(void *opaque)
 {
-	return 1;
+	return EVENT_DATA_SIZE;
 }
 
 static void atlantronic_usb_receive(void *opaque, const uint8_t* buf, int size)
@@ -757,7 +761,7 @@ static void atlantronic_usb_receive(void *opaque, const uint8_t* buf, int size)
 	struct atlantronic_usb_state *usb = opaque;
 
 	qemu_mutex_lock(&usb->event_mutex);
-	if((usb->event_end + 1) % EVENT_NUM != usb->event_start && size < EVENT_DATA_SIZE)
+	if((usb->event_end + 1) % EVENT_NUM != usb->event_start && size < EVENT_DATA_SIZE && size > 0)
 	{
 		// il reste de la place
 		usb->event[usb->event_end].type = ATLANTRONIC_EVENT_DATA;
