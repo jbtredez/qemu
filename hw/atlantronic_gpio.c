@@ -8,7 +8,7 @@
 #include "boards.h"
 #include "exec-memory.h"
 
-#define PIN_NUM        8
+#define PIN_NUM        16
 
 struct atlantronic_gpio_state
 {
@@ -21,6 +21,8 @@ struct atlantronic_gpio_state
 static void atlantronic_gpio_write(void *opaque, target_phys_addr_t offset, uint64_t val, unsigned size)
 {
 	struct atlantronic_gpio_state* s = opaque;
+	int32_t diff = 0;
+	int i = 0;
 
 	switch(offset)
 	{
@@ -34,7 +36,16 @@ static void atlantronic_gpio_write(void *opaque, target_phys_addr_t offset, uint
 			printf("Error : GPIO forbiden write acces IDR (offset %x), val %lx\n", offset, val);
 			break;
 		case offsetof(GPIO_TypeDef, ODR):
-			s->gpio.ODR = val & 0xFFFF;
+			val &= 0xFFFF;
+			diff = s->gpio.ODR ^ val;  
+			s->gpio.ODR = val;
+			for( i = 0; i < PIN_NUM; i++)
+			{
+				if( (diff >> i) & 0x01)
+				{
+					qemu_set_irq(s->irq[i], (val >> i) & 0x01);
+				}
+			}
 			break;
 		case offsetof(GPIO_TypeDef, BSRR):
 			s->gpio.BSRR = val;
