@@ -30,7 +30,7 @@ static void atlantronic_foo_init(ram_addr_t ram_size,
 	sysbus_create_simple("atlantronic-gpio", GPIOB_BASE, NULL);
 	sysbus_create_simple("atlantronic-gpio", GPIOC_BASE, NULL);
 	sysbus_create_simple("atlantronic-gpio", GPIOD_BASE, NULL);
-	sysbus_create_simple("atlantronic-gpio", GPIOE_BASE, NULL);
+	DeviceState* gpioe = sysbus_create_simple("atlantronic-gpio", GPIOE_BASE, NULL);
 	sysbus_create_simple("atlantronic-gpio", GPIOF_BASE, NULL);
 
 	// mise a 1 des pin 2 et 3 de gpioa (id de foo)
@@ -59,6 +59,10 @@ static void atlantronic_foo_init(ram_addr_t ram_size,
 	qdev_connect_gpio_out(tim1, 2, qdev_get_gpio_in(model, 3)); // pwm 2 (gauche)
 	qdev_connect_gpio_out(tim1, 3, qdev_get_gpio_in(model, 4)); // pwm 3
 	qdev_connect_gpio_out(tim1, 4, qdev_get_gpio_in(model, 5)); // pwm 4
+	qdev_connect_gpio_out(gpioe, 8, qdev_get_gpio_in(model, 6)); // direction pwm 1 (droite)
+	qdev_connect_gpio_out(gpioe, 10, qdev_get_gpio_in(model, 7)); // direction pwm 2 (gauche)
+	qdev_connect_gpio_out(gpioe, 12, qdev_get_gpio_in(model, 8)); // direction pwm 3
+	qdev_connect_gpio_out(gpioe, 15, qdev_get_gpio_in(model, 9)); // direction pwm 4
 
 	qdev_connect_gpio_out(model, 0, qdev_get_gpio_in(tim2, 0)); // encodeur 1 (droite)
 	qdev_connect_gpio_out(model, 1, qdev_get_gpio_in(tim4, 0)); // encodeur 2 (gauche)
