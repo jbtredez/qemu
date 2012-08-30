@@ -74,7 +74,7 @@ static void atlantronic_tim_write(void *opaque, target_phys_addr_t offset, uint6
 				val = s->tim.ARR;
 			}
 			s->tim.CCR1 = val;
-			qemu_set_irq(s->irq[1], (s->tim.CCR1 << 16) / (s->tim.ARR + 1 ));
+			qemu_set_irq(s->irq[1], (val << 16) / (s->tim.ARR + 1 ));
 			break;
 		case offsetof(TIM_TypeDef, CCR2):
 			if(val > s->tim.ARR)
@@ -82,7 +82,7 @@ static void atlantronic_tim_write(void *opaque, target_phys_addr_t offset, uint6
 				val = s->tim.ARR;
 			}
 			s->tim.CCR2 = val;
-			qemu_set_irq(s->irq[2], (s->tim.CCR2 << 16) / (s->tim.ARR + 1 ));
+			qemu_set_irq(s->irq[2], (val << 16) / (s->tim.ARR + 1 ));
 			break;
 		case offsetof(TIM_TypeDef, CCR3):
 			if(val > s->tim.ARR)
@@ -90,7 +90,7 @@ static void atlantronic_tim_write(void *opaque, target_phys_addr_t offset, uint6
 				val = s->tim.ARR;
 			}
 			s->tim.CCR3 = val;
-			qemu_set_irq(s->irq[3], (s->tim.CCR3 << 16) / (s->tim.ARR + 1 ));
+			qemu_set_irq(s->irq[3], (val << 16) / (s->tim.ARR + 1 ));
 			break;
 		case offsetof(TIM_TypeDef, CCR4):
 			if(val > s->tim.ARR)
@@ -98,7 +98,7 @@ static void atlantronic_tim_write(void *opaque, target_phys_addr_t offset, uint6
 				val = s->tim.ARR;
 			}
 			s->tim.CCR4 = val;
-			qemu_set_irq(s->irq[4], (s->tim.CCR4 << 16) / (s->tim.ARR + 1 ));
+			qemu_set_irq(s->irq[4], (val << 16) / (s->tim.ARR + 1 ));
 			break;
 		case offsetof(TIM_TypeDef, BDTR):
 			s->tim.BDTR = val;
