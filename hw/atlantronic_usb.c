@@ -217,7 +217,7 @@ static int32_t atlantronic_usb_write_rx_fifo0_data(struct atlantronic_usb_state 
 			break;
 		case 3:
 			count++;
-			atlantronic_usb_write32_fifo(usb, 0, data[i] + (data[i+1] << 8) + (data[i+1] << 16));
+			atlantronic_usb_write32_fifo(usb, 0, data[i] + (data[i+1] << 8) + (data[i+2] << 16));
 			break;
 	}
 
