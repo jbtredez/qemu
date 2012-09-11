@@ -43,6 +43,14 @@ struct atlantronic_model_state
 	int32_t pwm_dir[PWM_NUM];
 	float enc[ENCODER_NUM];
 	struct atlantronic_motor motor[PWM_NUM];
+
+	float x;           //!< position du robot (axe x, mm)
+	float y;           //!< position du robot (axe y, mm)
+	float alpha;       //!< angle du robot (rd)
+	float ca;          //!< cos(alpha)
+	float sa;          //!< sin(alpha)
+	float v;           //!< vitesse linéaire du robot (mm/s)
+	float w;           //!< vitesse angulaire du robot (rd/s)
 };
 
 static void atlantronic_motor_init(struct atlantronic_motor* motor)
@@ -142,7 +150,7 @@ static void atlantronic_motor_update(struct atlantronic_motor* motor, double pwm
 
 	motor->i = X[0];
 	motor->w = X[1];
-	motor->theta = fmod(X[2], 2*M_PI);
+	motor->theta = fmod(X[2], 2 * M_PI * 65536 / (1<< PARAM_ENCODERS_BIT_RES));
 }
 
 static void atlantronic_model_reset(struct atlantronic_model_state* s)
@@ -158,6 +166,44 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	{
 		s->enc[i] = 0;
 	}
+
+	s->x = 0;
+	s->y = 0;
+	s->alpha = 0;
+	s->ca = 1;
+	s->sa = 0;
+	s->v = 0;
+	s->w = 0;
+}
+
+static void atlantronic_model_compute(struct atlantronic_model_state* s)
+{
+	float v1 = s->motor[0].w * s->motor[0].red * PARAM_RIGHT_ODO_WHEEL_RADIUS_FX / 65536.0f;
+	float v2 = s->motor[1].w * s->motor[1].red * PARAM_LEFT_ODO_WHEEL_RADIUS_FX / 65536.0f;
+	s->v = (v1 + v2) / 2;
+	s->w = ((v1 - v2) * PARAM_INVERTED_VOIE_FX39) / ((uint64_t)1 << 39);
+	s->x += s->v * s->ca / CONTROL_HZ;
+	s->y += s->v * s->sa / CONTROL_HZ;
+	s->alpha += s->w / CONTROL_HZ;
+	s->ca = cos(s->alpha);
+	s->sa = sin(s->alpha);
+
+#if 0
+	if( fabs(s->v) > 0.01 || fabs(s->w) > 0.00001)
+	{
+		printf("%.2f %.2f %.2f v %.2f w %f\n", s->x, s->y, s->alpha, s->v, s->w);
+	}
+#endif
+	// TODO :simulation bordures de la table
+	// TEST
+#if 0
+	if(s->x > 1500 + PARAM_NP_X / 65536.0f)
+	{
+		s->x = 1500 + PARAM_NP_X / 65536.0f;
+		s->motor[0].w = 0;
+		s->motor[1].w = 0;
+	}
+#endif
 }
 
 static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
@@ -179,16 +225,17 @@ static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 				{
 					level = -level;
 				}
-#if 0
-				if(level > 0 && id == 0)
-				{
-					printf("pwm %.2f v %.2f i %.3f\n", s->motor[id].pwm, s->motor[id].w * s->motor[id].red * PARAM_RIGHT_ODO_WHEEL_RADIUS_FX / 65536.0f, s->motor[id].i);
-				}
-#endif
+
 				atlantronic_motor_update(&s->motor[id], level / 65536.0f);
 				s->enc[id] = s->motor[id].theta * (1<< PARAM_ENCODERS_BIT_RES) / (2 * M_PI);
 				s->enc[id] -= (floor((s->enc[id] - 65536) / 65536) + 1 ) * 65536;
 				qemu_set_irq(s->irq[id], ((int32_t) s->enc[id])&0xffff );
+
+				// dans le code, c'est la derniere pwm..., on en profite pour calculer le modele cinematique
+				if(id == 1)
+				{
+					atlantronic_model_compute(s);
+				}
 				break;
 			default:
 				break;
