@@ -15,6 +15,29 @@
 #define PWM_NUM            4
 #define ENCODER_NUM        2
 #define MODEL_FACTOR      10      //!< calcul du modele a 10x la frequence d'utilisation
+#define EPSILON      0.00001f
+#define CORNER_NUM         4
+
+struct atlantronic_vect2
+{
+	float x;
+	float y;
+};
+
+struct atlantronic_vect3
+{
+	float x;           //!< position du robot (axe x, mm)
+	float y;           //!< position du robot (axe y, mm)
+	float alpha;       //!< angle du robot (rd)
+	float ca;          //!< cos(alpha)
+	float sa;          //!< sin(alpha)
+};
+
+struct atlantronic_polyline
+{
+	struct atlantronic_vect2* pt;
+	int size;
+};
 
 struct atlantronic_motor
 {
@@ -29,10 +52,15 @@ struct atlantronic_motor
 	float red;      //!< reducteur
 	float i_max;    //!< courant maximal (A)
 
+	bool block;     //!< bloquage du moteur
 
-	float i;          //!< intensite du moteur (A)
-	float w;          //!< vitesse de rotation du moteur (avant reducteur)
-	float theta;      //!< angle du moteur (après reducteur)
+	float i_old;         //!< intensite du moteur du cycle precedent (A)
+	float w_old;         //!< vitesse de rotation du moteur (avant reducteur) du cycle precedent
+	float theta_old;     //!< angle du moteur (après reducteur) du cycle precedent
+
+	float i;             //!< intensite du moteur (A)
+	float w;             //!< vitesse de rotation du moteur (avant reducteur)
+	float theta;         //!< angle du moteur (après reducteur)
 };
 
 struct atlantronic_model_state
@@ -44,13 +72,23 @@ struct atlantronic_model_state
 	float enc[ENCODER_NUM];
 	struct atlantronic_motor motor[PWM_NUM];
 
-	float x;           //!< position du robot (axe x, mm)
-	float y;           //!< position du robot (axe y, mm)
-	float alpha;       //!< angle du robot (rd)
-	float ca;          //!< cos(alpha)
-	float sa;          //!< sin(alpha)
+	struct atlantronic_vect3 pos;
 	float v;           //!< vitesse linéaire du robot (mm/s)
 	float w;           //!< vitesse angulaire du robot (rd/s)
+};
+
+static const struct atlantronic_vect2 corner_loc[CORNER_NUM] =
+{
+	{ PARAM_RIGHT_CORNER_X / 65536.0f, PARAM_RIGHT_CORNER_Y / 65536.0f},
+	{ PARAM_LEFT_CORNER_X / 65536.0f,  PARAM_LEFT_CORNER_Y / 65536.0f},
+	{ PARAM_NP_X / 65536.0f,  PARAM_RIGHT_CORNER_Y / 65536.0f},
+	{ PARAM_NP_X / 65536.0f,  PARAM_LEFT_CORNER_Y / 65536.0f}
+};
+
+static struct atlantronic_vect2 atlantronic_table_border_pt[5] = {{1500, -1000}, {1500, 1000}, {-1500, 1000}, {-1500, -1000}, {1500, -1000}};
+static struct atlantronic_polyline atlantronic_static_obj[ ] =
+{
+	{atlantronic_table_border_pt, sizeof(atlantronic_table_border_pt)/sizeof(atlantronic_table_border_pt[0])}
 };
 
 static void atlantronic_motor_init(struct atlantronic_motor* motor)
@@ -65,6 +103,12 @@ static void atlantronic_motor_init(struct atlantronic_motor* motor)
 	motor->cp = 0;
 	motor->red = 1 / 21.0f;
 	motor->i_max = 2.25;
+
+	motor->block = false;
+
+	motor->i_old = 0;
+	motor->theta_old = 0;
+	motor->w_old = 0;
 
 	motor->i = 0;
 	motor->theta = 0;
@@ -81,8 +125,12 @@ static void atlantronic_motor_compute_dx(struct atlantronic_motor* motor, double
 	// di/dt = ( u - ri - kw ) / L
 	dx[0] = ( motor->gain_pwm * motor->pwm - motor->r * x[0] - motor->k * x[1]) / motor->l;
 
-	// dw/dt = (ki - cp - fw) / J
+	// dw/dt = (ki - cp - fw) / J (ou 0 en cas de bloquage)
 	dx[1] = (motor->k * x[0] - motor->cp - motor->f * x[1]) / motor->j;
+	if( motor->block )
+	{
+		dx[1] = 0;
+	}
 
 	// dtheta/dt = w
 	dx[2] = motor->red * x[1];
@@ -102,7 +150,7 @@ static float sat(float x, float min, float max)
 	return x;
 }
 
-static void atlantronic_motor_update(struct atlantronic_motor* motor, double pwm)
+static void atlantronic_motor_update(struct atlantronic_motor* motor)
 {
 	int i = 0;
 	int j = 0;
@@ -114,7 +162,15 @@ static void atlantronic_motor_update(struct atlantronic_motor* motor, double pwm
 	double k3[3];
 	double k4[3];
 
-	motor->pwm = pwm;
+	motor->i_old = motor->i;
+	motor->w_old = motor->w;
+	motor->theta_old = motor->theta;
+
+	// bloquage du moteur
+	if( motor->block )
+	{
+		X[1] = 0;
+	}
 
 	for(i = 0; i < 10; i++)
 	{
@@ -153,6 +209,13 @@ static void atlantronic_motor_update(struct atlantronic_motor* motor, double pwm
 	motor->theta = fmod(X[2], 2 * M_PI * 65536 / (1<< PARAM_ENCODERS_BIT_RES));
 }
 
+static void atlantronic_motor_cancel_update(struct atlantronic_motor* motor)
+{
+	motor->i = motor->i_old;
+	motor->w = motor->w_old;
+	motor->theta = motor->theta_old;
+}
+
 static void atlantronic_model_reset(struct atlantronic_model_state* s)
 {
 	int i = 0;
@@ -167,43 +230,154 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 		s->enc[i] = 0;
 	}
 
-	s->x = 0;
-	s->y = 0;
-	s->alpha = 0;
-	s->ca = 1;
-	s->sa = 0;
+	s->pos.x = 0;
+	s->pos.y = 700;
+	s->pos.alpha = - M_PI / 2;
+	s->pos.ca = cos(s->pos.alpha);
+	s->pos.sa = sin(s->pos.alpha);
 	s->v = 0;
 	s->w = 0;
 }
 
+//! calcule l'intersection h entre deux segments [a b] et [c d]
+//! @return 0 si h est trouvé, < 0 sinon
+static int atlantronic_segment_intersection(const struct atlantronic_vect2 a, const struct atlantronic_vect2 b, const struct atlantronic_vect2 c, const struct atlantronic_vect2 d, struct atlantronic_vect2* h)
+{
+	double den = (b.y - a.y) * (d.x - c.x) - (d.y - c.y) * (b.x - a.x);
+	double num = (d.x - c.x) * (c.y - a.y) - (d.y - c.y) * (c.x - a.x);
+
+	if(den == 0)
+	{
+		// droites (a b) et (c d) parallèles
+		return -1;
+	}
+
+	double alpha = num / den;
+
+	if( fabs(alpha) < EPSILON )
+	{
+		alpha = 0;
+	}
+
+	if( fabs(alpha - 1) < EPSILON )
+	{
+		alpha = 1;
+	}
+
+	// on n'est pas dans [a b]
+	if(alpha < 0 || alpha > 1)
+	{
+		return -1;
+	}
+
+	num = (b.y - a.y) * (a.x - c.x) - (b.x - a.x) * (a.y - c.y);
+
+	double beta = num / den;
+
+	if( fabs(beta) < EPSILON )
+	{
+		beta = 0;
+	}
+
+	if( fabs(beta - 1) < EPSILON )
+	{
+		beta = 1;
+	}
+
+	// on n'est pas dans [c d]
+	if(beta < 0 || beta > 1)
+	{
+		return -2;
+	}
+
+	h->x = a.x + alpha * (b.x - a.x);
+	h->y = a.y + alpha * (b.y - a.y);
+
+	return 0;
+}
+
+//! changement de repere du repère local au repere absolu
+//! origin : origine du repère local dans le repère absolu
+static void atlantronic_vect2_loc_to_abs(const struct atlantronic_vect3 *origin, const struct atlantronic_vect2 *pos_in, struct atlantronic_vect2 *pos_out)
+{
+	pos_out->x = origin->x + origin->ca * pos_in->x - origin->sa * pos_in->y;
+	pos_out->y = origin->y + origin->sa * pos_in->x + origin->ca * pos_in->y;
+}
+
 static void atlantronic_model_compute(struct atlantronic_model_state* s)
 {
+	int i = 0;
+
+	// test avec moteurs non bloques
+	s->motor[0].block = false;
+	s->motor[1].block = false;
+	atlantronic_motor_update(&s->motor[0]);
+	atlantronic_motor_update(&s->motor[1]);
+
 	float v1 = s->motor[0].w * s->motor[0].red * PARAM_RIGHT_ODO_WHEEL_RADIUS_FX / 65536.0f;
 	float v2 = s->motor[1].w * s->motor[1].red * PARAM_LEFT_ODO_WHEEL_RADIUS_FX / 65536.0f;
+	struct atlantronic_vect3 pos_new = s->pos;
+
 	s->v = (v1 + v2) / 2;
 	s->w = ((v1 - v2) * PARAM_INVERTED_VOIE_FX39) / ((uint64_t)1 << 39);
-	s->x += s->v * s->ca / CONTROL_HZ;
-	s->y += s->v * s->sa / CONTROL_HZ;
-	s->alpha += s->w / CONTROL_HZ;
-	s->ca = cos(s->alpha);
-	s->sa = sin(s->alpha);
+	pos_new.x += s->v * s->pos.ca / CONTROL_HZ;
+	pos_new.y += s->v * s->pos.sa / CONTROL_HZ;
+	pos_new.alpha += s->w / CONTROL_HZ;
+	pos_new.ca = cos(pos_new.alpha);
+	pos_new.sa = sin(pos_new.alpha);
 
 #if 0
 	if( fabs(s->v) > 0.01 || fabs(s->w) > 0.00001)
 	{
-		printf("%.2f %.2f %.2f v %.2f w %f\n", s->x, s->y, s->alpha, s->v, s->w);
+		printf("%.2f %.2f %.2f v %.2f w %f\n", s->pos.x, s->pos.y, s->pos.alpha, s->v, s->w);
 	}
 #endif
-	// TODO :simulation bordures de la table
-	// TEST
-#if 0
-	if(s->x > 1500 + PARAM_NP_X / 65536.0f)
+
+	struct atlantronic_vect2 corner_abs_old[CORNER_NUM];
+	struct atlantronic_vect2 corner_abs_new[CORNER_NUM];
+	int res = -1;
+
+	for(i = 0; i < CORNER_NUM && res; i++)
 	{
-		s->x = 1500 + PARAM_NP_X / 65536.0f;
-		s->motor[0].w = 0;
-		s->motor[1].w = 0;
+		int j = 0;
+		atlantronic_vect2_loc_to_abs(&s->pos, &corner_loc[i], &corner_abs_old[i]);
+		atlantronic_vect2_loc_to_abs(&pos_new, &corner_loc[i], &corner_abs_new[i]);
+		struct atlantronic_vect2 h;
+
+		for(j = 0; j < sizeof(atlantronic_static_obj) / sizeof(atlantronic_static_obj[0]) && res ; j++)
+		{
+			int k = 0;
+			for(k = 0; k < atlantronic_static_obj[j].size - 1 && res ; k++)
+			{
+				res = atlantronic_segment_intersection(atlantronic_static_obj[j].pt[k], atlantronic_static_obj[j].pt[k+1], corner_abs_old[i], corner_abs_new[i], &h);
+			}
+		}
 	}
-#endif
+
+	if( ! res )
+	{
+		s->motor[0].block = true;
+		s->motor[1].block = true;
+
+		// bloquage d'un des moteurs, on refait le calcul
+		atlantronic_motor_cancel_update(&s->motor[0]);
+		atlantronic_motor_cancel_update(&s->motor[1]);
+		atlantronic_motor_update(&s->motor[0]);
+		atlantronic_motor_update(&s->motor[1]);
+
+		pos_new = s->pos;
+		s->v = 0;
+		s->w = 0;
+	}
+
+	s->pos = pos_new;
+	s->enc[0] = s->motor[0].theta * (1<< PARAM_ENCODERS_BIT_RES) / (2 * M_PI);
+	s->enc[0] -= (floor((s->enc[0] - 65536) / 65536) + 1 ) * 65536;
+	s->enc[1] = s->motor[1].theta * (1<< PARAM_ENCODERS_BIT_RES) / (2 * M_PI);
+	s->enc[1] -= (floor((s->enc[1] - 65536) / 65536) + 1 ) * 65536;
+
+	qemu_set_irq(s->irq[0], ((int32_t) s->enc[0])&0xffff );
+	qemu_set_irq(s->irq[1], ((int32_t) s->enc[1])&0xffff );
 }
 
 static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
@@ -226,10 +400,7 @@ static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 					level = -level;
 				}
 
-				atlantronic_motor_update(&s->motor[id], level / 65536.0f);
-				s->enc[id] = s->motor[id].theta * (1<< PARAM_ENCODERS_BIT_RES) / (2 * M_PI);
-				s->enc[id] -= (floor((s->enc[id] - 65536) / 65536) + 1 ) * 65536;
-				qemu_set_irq(s->irq[id], ((int32_t) s->enc[id])&0xffff );
+				s->motor[id].pwm = level / 65536.0f;
 
 				// dans le code, c'est la derniere pwm..., on en profite pour calculer le modele cinematique
 				if(id == 1)
