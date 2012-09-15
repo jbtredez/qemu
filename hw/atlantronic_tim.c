@@ -1,7 +1,6 @@
 #define LINUX
 #include "kernel/cpu/cpu.h"
 #undef LINUX
-#include "kernel/driver/usb/otgd_fs_regs.h"
 
 #include "sysbus.h"
 #include "arm-misc.h"
@@ -223,14 +222,14 @@ static const MemoryRegionOps atlantronic_tim_ops =
 
 static void atlantronic_tim_in_recv(void * opaque, int numPin, int level)
 {
-    struct atlantronic_tim_state *s = opaque;
+	struct atlantronic_tim_state *s = opaque;
 
 	s->tim.CNT = level;
 }
 
 static int atlantronic_tim_init(SysBusDevice * dev)
 {
-    struct atlantronic_tim_state *s = FROM_SYSBUS(struct atlantronic_tim_state, dev);
+	struct atlantronic_tim_state *s = FROM_SYSBUS(struct atlantronic_tim_state, dev);
 
 	memory_region_init_io(&s->iomem, &atlantronic_tim_ops, s, "atlantronic_tim", 0x400);
 	sysbus_init_mmio(dev, &s->iomem);
