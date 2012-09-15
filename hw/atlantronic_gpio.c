@@ -1,7 +1,6 @@
 #define LINUX
 #include "kernel/cpu/cpu.h"
 #undef LINUX
-#include "kernel/driver/usb/otgd_fs_regs.h"
 
 #include "sysbus.h"
 #include "arm-misc.h"
@@ -41,7 +40,20 @@ static void atlantronic_gpio_write(void *opaque, target_phys_addr_t offset, uint
 			s->gpio.ODR = val;
 			for( i = 0; i < PIN_NUM; i++)
 			{
-				if( (diff >> i) & 0x01)
+				int mode = 0;
+
+				if( i < 8)
+				{
+					// pin 0 a 7
+					mode = (s->gpio.CRL >> (4 * i)) & 0x03;
+				}
+				else
+				{
+					// pin 8 a 15
+					mode = (s->gpio.CRH >> (4 * (i - 8))) & 0x03;
+				}
+
+				if( mode != 0 && ((diff >> i) & 0x01))
 				{
 					qemu_set_irq(s->irq[i], (val >> i) & 0x01);
 				}
@@ -118,21 +130,53 @@ static const MemoryRegionOps atlantronic_gpio_ops =
 
 static void atlantronic_gpio_in_recv(void * opaque, int numPin, int level)
 {
-    struct atlantronic_gpio_state *s = opaque;
+	struct atlantronic_gpio_state *s = opaque;
 
-	if(level)
+	int mode = 0;
+	int cnf = 0;
+
+	if( numPin < 8)
 	{
-		s->gpio.IDR |= (1 << numPin);
+		// pin 0 a 7
+		mode = (s->gpio.CRL >> (4 * numPin)) & 0x03;
+		cnf  = (s->gpio.CRL >> (4 * numPin + 2)) & 0x03;
 	}
 	else
 	{
-		s->gpio.IDR &= ~(1 << numPin);
+		// pin 8 a 15
+		mode = (s->gpio.CRH >> (4 * (numPin - 8))) & 0x03;
+		cnf  = (s->gpio.CRH >> (4 * (numPin - 8) + 2)) & 0x03;
+	}
+
+	if( mode != 0 )
+	{
+		// pin configurée en sortie, erreur
+		hw_error("conflict, try to set gpio output pin %d lv %d", numPin, level);
+		return;
+	}
+
+	if( cnf != 0 )
+	{
+		// io 0 / 1
+		if(level)
+		{
+			s->gpio.IDR |= (1 << numPin);
+		}
+		else
+		{
+			s->gpio.IDR &= ~(1 << numPin);
+		}
+	}
+	else
+	{
+		// AN, envoi vers le module adc
+		qemu_set_irq(s->irq[numPin], level);
 	}
 }
 
 static int atlantronic_gpio_init(SysBusDevice * dev)
 {
-    struct atlantronic_gpio_state *s = FROM_SYSBUS(struct atlantronic_gpio_state, dev);
+	struct atlantronic_gpio_state *s = FROM_SYSBUS(struct atlantronic_gpio_state, dev);
 
 	memory_region_init_io(&s->iomem, &atlantronic_gpio_ops, s, "atlantronic_gpio", 0x400);
 	sysbus_init_mmio(dev, &s->iomem);
