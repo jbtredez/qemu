@@ -10,7 +10,7 @@
 #include "kernel/robot_parameters.h"
 #include "foo/control/control.h"
 
-#define IRQ_OUT_NUM        2
+#define IRQ_OUT_NUM        6
 #define IRQ_IN_NUM        10
 #define PWM_NUM            4
 #define ENCODER_NUM        2
@@ -378,6 +378,9 @@ static void atlantronic_model_compute(struct atlantronic_model_state* s)
 
 	qemu_set_irq(s->irq[0], ((int32_t) s->enc[0])&0xffff );
 	qemu_set_irq(s->irq[1], ((int32_t) s->enc[1])&0xffff );
+	qemu_set_irq(s->irq[2], ((int32_t) fabs(s->motor[0].i / s->motor[0].i_max * 65536))&0xffff );
+	qemu_set_irq(s->irq[2], ((int32_t) fabs(s->motor[0].i / s->motor[0].i_max * 65536))&0xffff );
+	qemu_set_irq(s->irq[3], ((int32_t) fabs(s->motor[1].i / s->motor[1].i_max * 65536))&0xffff );
 }
 
 static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
@@ -408,6 +411,10 @@ static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 					atlantronic_model_compute(s);
 				}
 				break;
+			case 2:
+			case 3:
+				//	qemu_set_irq(s->irq[4], ((int32_t) fabs(s->motor[1].i / s->motor[1].i_max * 65536))&0xffff );
+				//	qemu_set_irq(s->irq[5], ((int32_t) fabs(s->motor[1].i / s->motor[1].i_max * 65536))&0xffff );
 			default:
 				break;
 		}
