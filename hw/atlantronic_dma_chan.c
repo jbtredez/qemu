@@ -14,10 +14,62 @@ struct atlantronic_dma_chan_state
 	MemoryRegion ram;
 	DMA_Channel_TypeDef dma_chan;
 	uint32_t cndtr_init;
-	uint32_t cpar_current;
-	uint32_t cmar_current;
+	uint32_t cpar_init;
+	uint32_t cmar_init;
 	qemu_irq irq;
 };
+
+static void atlantronic_update_dma(struct atlantronic_dma_chan_state *s)
+{
+	if( ! s->dma_chan.CCR & 0x01 )
+	{
+		// dma desactive
+		return;
+	}
+
+	if( ! s->dma_chan.CNDTR )
+	{
+		// il n'y a plus rien a copier
+		return;
+	}
+
+	int dir = (s->dma_chan.CCR >> 4) & 0x01;
+	int pinc = (s->dma_chan.CCR >> 6) & 0x01;
+	int minc = (s->dma_chan.CCR >> 7) & 0x01;
+	int psize = 1 << ((s->dma_chan.CCR >> 8) & 0x3);
+	int msize = 1 << ((s->dma_chan.CCR >> 10) & 0x3);
+
+	int64_t val;
+	if( dir )
+	{
+		// sens mem -> perif
+		cpu_physical_memory_read(s->dma_chan.CMAR, &val, psize);
+		cpu_physical_memory_write(s->dma_chan.CPAR, &val, msize);
+	}
+	else
+	{
+		// sens perif -> mem
+		cpu_physical_memory_read(s->dma_chan.CPAR, &val, psize);
+		cpu_physical_memory_write(s->dma_chan.CMAR, &val, msize);
+	}
+
+	s->dma_chan.CPAR += psize * pinc;
+	s->dma_chan.CMAR += msize * minc;
+	s->dma_chan.CNDTR--;
+	if( ! s->dma_chan.CNDTR )
+	{
+		s->dma_chan.CPAR = s->cpar_init;
+		s->dma_chan.CMAR = s->cmar_init;
+		// si circ : rechargement cndtr
+		if( ((s->dma_chan.CCR >> 5) & 0x01 ) && ! dir )
+		{
+			s->dma_chan.CNDTR = s->cndtr_init;
+		}
+
+		// IRQ fin de transfert
+		qemu_set_irq(s->irq, 2);
+	}
+}
 
 static void atlantronic_dma_chan_write(void *opaque, target_phys_addr_t offset, uint64_t val, unsigned size)
 {
@@ -29,8 +81,16 @@ static void atlantronic_dma_chan_write(void *opaque, target_phys_addr_t offset, 
 			if( ! (s->dma_chan.CCR & 0x01) && (val & 0x01) )
 			{
 				s->cndtr_init = s->dma_chan.CNDTR;
-				s->cpar_current = s->dma_chan.CPAR;
-				s->cmar_current = s->dma_chan.CMAR;
+				s->cpar_init = s->dma_chan.CPAR;
+				s->cmar_init = s->dma_chan.CMAR;
+				if( (s->dma_chan.CCR >> 4) & 0x01 )
+				{
+					// mem -> perif
+					while( s->dma_chan.CNDTR )
+					{
+						atlantronic_update_dma(s);
+					}
+				}
 			}			
 			s->dma_chan.CCR = val;
 			break;
@@ -94,61 +154,7 @@ static const MemoryRegionOps atlantronic_dma_chan_ops =
 static void atlantronic_dma_chan_in_recv(void * opaque, int numPin, int level)
 {
 	struct atlantronic_dma_chan_state *s = opaque;
-
-	if( ! s->dma_chan.CCR & 0x01 )
-	{
-		// dma desactive
-		return;
-	}
-
-	if( (s->dma_chan.CCR >> 4) & 0x01 )
-	{
-		// dir mem -> perif
-		return;
-	}
-
-	if( ! s->dma_chan.CNDTR )
-	{
-		// il n'y a plus rien a copier
-		return;
-	}
-
-	int dir = (s->dma_chan.CCR >> 4) & 0x01;
-	int pinc = (s->dma_chan.CCR >> 6) & 0x01;
-	int minc = (s->dma_chan.CCR >> 7) & 0x01;
-	int psize = 1 << ((s->dma_chan.CCR >> 8) & 0x3);
-	int msize = 1 << ((s->dma_chan.CCR >> 10) & 0x3);
-
-	int64_t val;
-	if( dir )
-	{
-		// sens mem -> perif
-		cpu_physical_memory_read(s->cmar_current, &val, psize);
-		cpu_physical_memory_write(s->cpar_current, &val, msize);
-	}
-	else
-	{
-		// sens perif -> mem
-		cpu_physical_memory_read(s->cpar_current, &val, psize);
-		cpu_physical_memory_write(s->cmar_current, &val, msize);
-	}
-
-	s->cpar_current += psize * pinc;
-	s->cmar_current += msize * minc;
-	s->dma_chan.CNDTR--;
-	if( ! s->dma_chan.CNDTR )
-	{
-		s->cpar_current = s->dma_chan.CPAR;
-		s->cmar_current = s->dma_chan.CMAR;
-		// si circ : rechargement cndtr
-		if( (s->dma_chan.CCR >> 5) & 0x01 )
-		{
-			s->dma_chan.CNDTR = s->cndtr_init;
-		}
-
-		// IRQ fin de transfert
-		qemu_set_irq(s->irq, 2);
-	}
+	atlantronic_update_dma(s);
 }
 
 static int atlantronic_dma_chan_init(SysBusDevice * dev)

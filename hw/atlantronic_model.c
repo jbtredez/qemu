@@ -1,7 +1,10 @@
 #define LINUX
 #include "kernel/cpu/cpu.h"
 #undef LINUX
+
 #include "kernel/driver/usb/otgd_fs_regs.h"
+#include "atlantronic_model.h"
+#include "atlantronic_tools.h"
 
 #include "sysbus.h"
 #include "arm-misc.h"
@@ -10,34 +13,10 @@
 #include "kernel/robot_parameters.h"
 #include "foo/control/control.h"
 
-#define IRQ_OUT_NUM        6
 #define IRQ_IN_NUM        10
 #define PWM_NUM            4
 #define ENCODER_NUM        2
 #define MODEL_FACTOR      10      //!< calcul du modele a 10x la frequence d'utilisation
-#define EPSILON      0.00001f
-#define CORNER_NUM         4
-
-struct atlantronic_vect2
-{
-	float x;
-	float y;
-};
-
-struct atlantronic_vect3
-{
-	float x;           //!< position du robot (axe x, mm)
-	float y;           //!< position du robot (axe y, mm)
-	float alpha;       //!< angle du robot (rd)
-	float ca;          //!< cos(alpha)
-	float sa;          //!< sin(alpha)
-};
-
-struct atlantronic_polyline
-{
-	struct atlantronic_vect2* pt;
-	int size;
-};
 
 struct atlantronic_motor
 {
@@ -67,7 +46,7 @@ struct atlantronic_model_state
 {
 	SysBusDevice busdev;
 	MemoryRegion iomem;
-	qemu_irq irq[IRQ_OUT_NUM];
+	qemu_irq irq[MODEL_IRQ_OUT_NUM];
 	int32_t pwm_dir[PWM_NUM];
 	float enc[ENCODER_NUM];
 	struct atlantronic_motor motor[PWM_NUM];
@@ -75,20 +54,6 @@ struct atlantronic_model_state
 	struct atlantronic_vect3 pos;
 	float v;           //!< vitesse linéaire du robot (mm/s)
 	float w;           //!< vitesse angulaire du robot (rd/s)
-};
-
-static const struct atlantronic_vect2 corner_loc[CORNER_NUM] =
-{
-	{ PARAM_RIGHT_CORNER_X / 65536.0f, PARAM_RIGHT_CORNER_Y / 65536.0f},
-	{ PARAM_LEFT_CORNER_X / 65536.0f,  PARAM_LEFT_CORNER_Y / 65536.0f},
-	{ PARAM_NP_X / 65536.0f,  PARAM_RIGHT_CORNER_Y / 65536.0f},
-	{ PARAM_NP_X / 65536.0f,  PARAM_LEFT_CORNER_Y / 65536.0f}
-};
-
-static struct atlantronic_vect2 atlantronic_table_border_pt[5] = {{1500, -1000}, {1500, 1000}, {-1500, 1000}, {-1500, -1000}, {1500, -1000}};
-static struct atlantronic_polyline atlantronic_static_obj[ ] =
-{
-	{atlantronic_table_border_pt, sizeof(atlantronic_table_border_pt)/sizeof(atlantronic_table_border_pt[0])}
 };
 
 static void atlantronic_motor_init(struct atlantronic_motor* motor)
@@ -134,20 +99,6 @@ static void atlantronic_motor_compute_dx(struct atlantronic_motor* motor, double
 
 	// dtheta/dt = w
 	dx[2] = motor->red * x[1];
-}
-
-static float sat(float x, float min, float max)
-{
-	if(x > max)
-	{
-		x = max;
-	}
-	else if(x < min)
-	{
-		x = min;
-	}
-
-	return x;
 }
 
 static void atlantronic_motor_update(struct atlantronic_motor* motor)
@@ -239,71 +190,6 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	s->w = 0;
 }
 
-//! calcule l'intersection h entre deux segments [a b] et [c d]
-//! @return 0 si h est trouvé, < 0 sinon
-static int atlantronic_segment_intersection(const struct atlantronic_vect2 a, const struct atlantronic_vect2 b, const struct atlantronic_vect2 c, const struct atlantronic_vect2 d, struct atlantronic_vect2* h)
-{
-	double den = (b.y - a.y) * (d.x - c.x) - (d.y - c.y) * (b.x - a.x);
-	double num = (d.x - c.x) * (c.y - a.y) - (d.y - c.y) * (c.x - a.x);
-
-	if(den == 0)
-	{
-		// droites (a b) et (c d) parallèles
-		return -1;
-	}
-
-	double alpha = num / den;
-
-	if( fabs(alpha) < EPSILON )
-	{
-		alpha = 0;
-	}
-
-	if( fabs(alpha - 1) < EPSILON )
-	{
-		alpha = 1;
-	}
-
-	// on n'est pas dans [a b]
-	if(alpha < 0 || alpha > 1)
-	{
-		return -1;
-	}
-
-	num = (b.y - a.y) * (a.x - c.x) - (b.x - a.x) * (a.y - c.y);
-
-	double beta = num / den;
-
-	if( fabs(beta) < EPSILON )
-	{
-		beta = 0;
-	}
-
-	if( fabs(beta - 1) < EPSILON )
-	{
-		beta = 1;
-	}
-
-	// on n'est pas dans [c d]
-	if(beta < 0 || beta > 1)
-	{
-		return -2;
-	}
-
-	h->x = a.x + alpha * (b.x - a.x);
-	h->y = a.y + alpha * (b.y - a.y);
-
-	return 0;
-}
-
-//! changement de repere du repère local au repere absolu
-//! origin : origine du repère local dans le repère absolu
-static void atlantronic_vect2_loc_to_abs(const struct atlantronic_vect3 *origin, const struct atlantronic_vect2 *pos_in, struct atlantronic_vect2 *pos_out)
-{
-	pos_out->x = origin->x + origin->ca * pos_in->x - origin->sa * pos_in->y;
-	pos_out->y = origin->y + origin->sa * pos_in->x + origin->ca * pos_in->y;
-}
-
 static void atlantronic_model_compute(struct atlantronic_model_state* s)
 {
 	int i = 0;
@@ -376,11 +262,13 @@ static void atlantronic_model_compute(struct atlantronic_model_state* s)
 	s->enc[1] = s->motor[1].theta * (1<< PARAM_ENCODERS_BIT_RES) / (2 * M_PI);
 	s->enc[1] -= (floor((s->enc[1] - 65536) / 65536) + 1 ) * 65536;
 
-	qemu_set_irq(s->irq[0], ((int32_t) s->enc[0])&0xffff );
-	qemu_set_irq(s->irq[1], ((int32_t) s->enc[1])&0xffff );
-	qemu_set_irq(s->irq[2], ((int32_t) fabs(s->motor[0].i / s->motor[0].i_max * 65536))&0xffff );
-	qemu_set_irq(s->irq[2], ((int32_t) fabs(s->motor[0].i / s->motor[0].i_max * 65536))&0xffff );
-	qemu_set_irq(s->irq[3], ((int32_t) fabs(s->motor[1].i / s->motor[1].i_max * 65536))&0xffff );
+	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ENCODER_RIGHT], ((int32_t) s->enc[0])&0xffff );
+	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ENCODER_LEFT], ((int32_t) s->enc[1])&0xffff );
+	qemu_set_irq(s->irq[MODEL_IRQ_OUT_I_RIGHT], ((int32_t) fabs(s->motor[0].i / s->motor[0].i_max * 65536))&0xffff );
+	qemu_set_irq(s->irq[MODEL_IRQ_OUT_I_LEFT], ((int32_t) fabs(s->motor[1].i / s->motor[1].i_max * 65536))&0xffff );
+	qemu_set_irq(s->irq[MODEL_IRQ_OUT_X], (int32_t)(s->pos.x * 65536.0f));
+	qemu_set_irq(s->irq[MODEL_IRQ_OUT_Y], (int32_t)(s->pos.y * 65536.0f));
+	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ALPHA], (int32_t)(s->pos.alpha / (2 * M_PI) * (1<<26)));
 }
 
 static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
@@ -413,8 +301,8 @@ static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 				break;
 			case 2:
 			case 3:
-				//	qemu_set_irq(s->irq[4], ((int32_t) fabs(s->motor[1].i / s->motor[1].i_max * 65536))&0xffff );
-				//	qemu_set_irq(s->irq[5], ((int32_t) fabs(s->motor[1].i / s->motor[1].i_max * 65536))&0xffff );
+				//	qemu_set_irq(s->irq[MODEL_IRQ_I_MOT3], ((int32_t) fabs(s->motor[1].i / s->motor[1].i_max * 65536))&0xffff );
+				//	qemu_set_irq(s->irq[MODEL_IRQ_I_MOT4], ((int32_t) fabs(s->motor[1].i / s->motor[1].i_max * 65536))&0xffff );
 			default:
 				break;
 		}
@@ -430,10 +318,9 @@ static int atlantronic_model_init(SysBusDevice * dev)
 {
     struct atlantronic_model_state *s = FROM_SYSBUS(struct atlantronic_model_state, dev);
 
-	// memory_region_init_ram_ptr
 	sysbus_init_mmio(dev, &s->iomem);
 
-	qdev_init_gpio_out(&dev->qdev, s->irq, IRQ_OUT_NUM);
+	qdev_init_gpio_out(&dev->qdev, s->irq, MODEL_IRQ_OUT_NUM);
 	qdev_init_gpio_in(&dev->qdev, atlantronic_model_in_recv, IRQ_IN_NUM);
 
 	atlantronic_model_reset(s);

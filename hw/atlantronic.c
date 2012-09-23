@@ -3,6 +3,8 @@
 #undef LINUX
 #include "kernel/driver/usb/otgd_fs_regs.h"
 
+#include "atlantronic_model.h"
+#include "atlantronic_hokuyo.h"
 #include "sysbus.h"
 #include "arm-misc.h"
 #include "boards.h"
@@ -109,6 +111,12 @@ static void atlantronic_foo_init(ram_addr_t ram_size,
 	qdev_connect_gpio_out(gpioc, 5, qdev_get_gpio_in(adc1, 15));  // AN15 = PC5
 	qdev_connect_gpio_out(adc1, 0, qdev_get_gpio_in(dma1_chan1, 0));  // adc1 -> dma1_chan1
 
+	// usart
+	DeviceState* usart3 = sysbus_create_simple("atlantronic-usart", USART3_BASE, NULL);
+	qdev_connect_gpio_out(usart3, 0, pic[USART3_IRQn]);  // usart3 -> it hw
+	qdev_connect_gpio_out(usart3, 1, qdev_get_gpio_in(dma1_chan3, 0));  // usart3 -> dma1_chan3 (rx)
+
+
 	// usb
 	DeviceState* usb = sysbus_create_simple("atlantronic-usb", USB_OTG_FS_BASE_ADDR, NULL);
 	sysbus_connect_irq(sysbus_from_qdev(usb), 0, pic[OTG_FS_IRQn]);
@@ -126,12 +134,20 @@ static void atlantronic_foo_init(ram_addr_t ram_size,
 	qdev_connect_gpio_out(gpioe, 12, qdev_get_gpio_in(model, 8)); // direction pwm 3
 	qdev_connect_gpio_out(gpioe, 15, qdev_get_gpio_in(model, 9)); // direction pwm 4
 
-	qdev_connect_gpio_out(model, 0, qdev_get_gpio_in(tim2, 0));   // encodeur 1 (droite)
-	qdev_connect_gpio_out(model, 1, qdev_get_gpio_in(tim4, 0));   // encodeur 2 (gauche)
-	qdev_connect_gpio_out(model, 2, qdev_get_gpio_in(gpioc, 5));  // intensite moteur 1 (droite)
-	qdev_connect_gpio_out(model, 3, qdev_get_gpio_in(gpioa, 5));  // intensite moteur 2 (gauche)
-	qdev_connect_gpio_out(model, 4, qdev_get_gpio_in(gpioc, 3));  // intensite moteur 3
-	qdev_connect_gpio_out(model, 5, qdev_get_gpio_in(gpioc, 1));  // intensite moteur 4
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_ENCODER_RIGHT, qdev_get_gpio_in(tim2, 0));  // encodeur 1 (droite)
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_ENCODER_LEFT, qdev_get_gpio_in(tim4, 0));   // encodeur 2 (gauche)
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_I_RIGHT, qdev_get_gpio_in(gpioc, 5));  // intensite moteur 1 (droite)
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_I_LEFT, qdev_get_gpio_in(gpioa, 5));  // intensite moteur 2 (gauche)
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_I_MOT3, qdev_get_gpio_in(gpioc, 3));  // intensite moteur 3
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_I_MOT4, qdev_get_gpio_in(gpioc, 1));  // intensite moteur 4
+
+	// hokuyo
+	DeviceState* hokuyo1 = sysbus_create_simple("atlantronic-hokuyo", 0, NULL);
+	qdev_connect_gpio_out(usart3, 3, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_USART_DATA));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_X, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_X));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_Y, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_Y));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_ALPHA, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_ALPHA));
+	qdev_connect_gpio_out(hokuyo1, 0, qdev_get_gpio_in(usart3, 0));
 }
 
 static QEMUMachine atlantronic_foo =
