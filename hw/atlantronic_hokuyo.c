@@ -3,6 +3,7 @@
 #undef LINUX
 #include "kernel/robot_parameters.h"
 
+#include <stdlib.h>
 #include "atlantronic_hokuyo.h"
 #include "atlantronic_tools.h"
 #include "sysbus.h"
@@ -15,7 +16,8 @@
 #define HOKUYO_PERIOD_TICK         7200000
 #define HOKUYO_MAX_DISTANCE           4000
 
-#define HOKUYO_RES               (M_PI/512)
+#define HOKUYO_RES              (M_PI/512)
+#define HOKUYO_ERROR                    20
 
 struct atlantronic_hokuyo_state
 {
@@ -102,7 +104,7 @@ static void atlantronic_hokuyo_update(struct atlantronic_hokuyo_state* s)
 			}
 		}
 
-		s->mes[i] = dist_min;
+		s->mes[i] = dist_min + HOKUYO_ERROR * (2*(rand() / (RAND_MAX + 1.0)) - 1);
 	}
 }
 
