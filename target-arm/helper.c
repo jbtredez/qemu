@@ -3175,7 +3175,7 @@ uint32_t HELPER(v7m_mrs)(CPUARMState *env, uint32_t reg)
         return (env->uncached_cpsr & CPSR_I) != 0;
     case 17: /* BASEPRI */
     case 18: /* BASEPRI_MAX */
-        return env->v7m.basepri;
+        return (env->uncached_cpsr & CPSR_I) != 0;
     case 19: /* FAULTMASK */
         return (env->uncached_cpsr & CPSR_F) != 0;
     case 20: /* CONTROL */
@@ -3230,12 +3230,16 @@ void HELPER(v7m_msr)(CPUARMState *env, uint32_t reg, uint32_t val)
             env->uncached_cpsr &= ~CPSR_I;
         break;
     case 17: /* BASEPRI */
-        env->v7m.basepri = val & 0xff;
-        break;
     case 18: /* BASEPRI_MAX */
-        val &= 0xff;
-        if (val != 0 && (val < env->v7m.basepri || env->v7m.basepri == 0))
-            env->v7m.basepri = val;
+          if(val)
+          {
+              env->uncached_cpsr |= CPSR_I;
+          }
+          else
+          {
+              env->uncached_cpsr &= ~CPSR_I;
+          }
+          break;
         break;
     case 19: /* FAULTMASK */
         if (val & 1)
