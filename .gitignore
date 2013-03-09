@@ -97,3 +97,8 @@ cscope.*
 tags
 TAGS
 *~
+pc-bios/optionrom/kvmvapic.asm
+pc-bios/optionrom/linuxboot.asm
+pc-bios/optionrom/multiboot.asm
+roms/seabios/config.mak
+roms/vgabios/config.mak
