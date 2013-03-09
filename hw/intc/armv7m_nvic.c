@@ -527,7 +527,7 @@ static void armv7m_nvic_instance_init(Object *obj)
      * IRQ lines. We default to 64. Other boards may differ and should
      * set the num-irq property appropriately.
      */
-    s->num_irq = 64;
+    s->num_irq = 128;
 }
 
 static void armv7m_nvic_class_init(ObjectClass *klass, void *data)
