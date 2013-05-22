@@ -11,11 +11,25 @@
 #include "boards.h"
 #include "kernel/robot_parameters.h"
 #include "foo/control/control.h"
+#include "char/char.h"
 
 #define IRQ_IN_NUM        10
 #define PWM_NUM            4
 #define ENCODER_NUM        2
 #define MODEL_FACTOR      10      //!< calcul du modele a 10x la frequence d'utilisation
+
+#define EVENT_CLOCK_FACTOR     1
+
+
+struct atlantronic_model_rx_event
+{
+	uint32_t type;        //!< type
+	union
+	{
+		uint8_t data[64];     //!< données
+		uint32_t data32[16];  //!< données
+	};
+};
 
 struct atlantronic_motor
 {
@@ -46,6 +60,7 @@ struct atlantronic_model_state
 	SysBusDevice busdev;
 	MemoryRegion iomem;
 	qemu_irq irq[MODEL_IRQ_OUT_NUM];
+	CharDriverState* chr;
 	int32_t pwm_dir[PWM_NUM];
 	float enc[ENCODER_NUM];
 	struct atlantronic_motor motor[PWM_NUM];
@@ -313,6 +328,41 @@ static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 	}
 }
 
+static int atlantronic_model_can_receive(void *opaque)
+{
+	return sizeof(struct atlantronic_model_rx_event);
+}
+
+static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size)
+{
+//	struct atlantronic_model_state *model = opaque;
+	struct atlantronic_model_rx_event* event = (struct atlantronic_model_rx_event*) buf;
+
+	if(size != sizeof(struct atlantronic_model_rx_event))
+	{
+		hw_error("atlantronic_model_receive - incorrect size");
+	}
+
+	switch(event->type)
+	{
+		case EVENT_CLOCK_FACTOR:
+			if(event->data32[0] > 0)
+			{
+				system_clock_scale = event->data32[0];
+			}
+			else
+			{
+				system_clock_scale = INT_MAX/2;
+			}
+			break;
+	}
+}
+
+static void atlantronic_model_event(void *opaque, int event)
+{
+
+}
+
 static int atlantronic_model_init(SysBusDevice * dev)
 {
     struct atlantronic_model_state *s = FROM_SYSBUS(struct atlantronic_model_state, dev);
@@ -321,6 +371,16 @@ static int atlantronic_model_init(SysBusDevice * dev)
 
 	qdev_init_gpio_out(&dev->qdev, s->irq, MODEL_IRQ_OUT_NUM);
 	qdev_init_gpio_in(&dev->qdev, atlantronic_model_in_recv, IRQ_IN_NUM);
+
+	s->chr = qemu_chr_find("foo_model");
+	if( s->chr == NULL)
+	{
+		hw_error("chardev foo_model not found");
+	}
+	else
+	{
+		qemu_chr_add_handlers(s->chr, atlantronic_model_can_receive, atlantronic_model_receive, atlantronic_model_event, s);
+	}
 
 	atlantronic_model_reset(s);
 
