@@ -1,4 +1,5 @@
 #define LINUX
+#define STM32F10X_CL
 #include "kernel/cpu/cpu.h"
 #undef LINUX
 #include "kernel/robot_parameters.h"
