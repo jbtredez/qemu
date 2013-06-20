@@ -61,9 +61,6 @@ static void atlantronic_hokuyo_update(struct atlantronic_hokuyo_state* s)
 	int res = 0;
 	float dist_min = 0;
 
-	// todo : hokuyo au centre du robot pour le moment
-//	pos_loc_to_abs(&scan->pos_robot, &scan->pos_hokuyo, &hokuyo_pos_table);
-
 	struct atlantronic_vect3 pos_robot = { s->x, s->y, s->alpha, cos(s->alpha), sin(s->alpha)};
 	struct atlantronic_vect3 hokuyo_pos_loc;
 	hokuyo_pos_loc.x =  PARAM_FOO_HOKUYO_X / 65536.0f;
@@ -163,20 +160,26 @@ static void atlantronic_hokuyo_gs(struct atlantronic_hokuyo_state* s)
 
 static void atlantronic_timer_cb(void* arg)
 {
+	static int clock_scale = 1;
 	struct atlantronic_hokuyo_state *s = arg;
 
 	s->timer_count += HOKUYO_PERIOD_TICK;
 	qemu_mod_timer(s->timer, s->timer_count);
-	if( s->send_scan_when_ready )
+	if( clock_scale >= system_clock_scale)
 	{
-		s->scan_ready = 0;
-		s->send_scan_when_ready = 0;
-		atlantronic_hokuyo_gs(s);
+		if( s->send_scan_when_ready )
+		{
+			s->scan_ready = 0;
+			s->send_scan_when_ready = 0;
+			atlantronic_hokuyo_gs(s);
+		}
+		else
+		{
+			s->scan_ready = 1;
+		}
+		clock_scale = 0;
 	}
-	else
-	{
-		s->scan_ready = 1;
-	}
+	clock_scale++;
 }
 
 static void atlantronic_hokuyo_in_recv_usart(struct atlantronic_hokuyo_state *s, int level)
