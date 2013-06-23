@@ -1,80 +1,60 @@
 #include "atlantronic_tools.h"
 #include "kernel/robot_parameters.h"
+#include "qemu-common.h"
 
-//!< contour de la table
-const struct atlantronic_vect2 table_contour[5] =
+// TODO voir pourquoi ca bug si on demarre avec atlantronic_static_obj_count = 0
+// on met un objet loin pour contourner le probleme ...
+struct atlantronic_vect2 bug[2] =
 {
-	{ -1500, -1000}, { -1500, 1000 }, { 1500, 1000 }, { 1500, -1000 }, { -1500, -1000 }
+	{ -8000, -8000},
+	{  8000, -8000}
 };
 
-//!< bordure diagonale zone marron coté bleu
-const struct atlantronic_vect2 table_diag_border_blue[2] =
+struct atlantronic_polyline atlantronic_static_obj[STATIC_OBJ_MAX] =
 {
-	{ -1175, -1000 }, { -1138, -251 }
+	{ 2, bug },
 };
 
-//!< bordure case depart zone marron coté bleu
-const struct atlantronic_vect2 table_start_border_blue[4] =
-{
-	{ -1500, 500 }, { -1000, 500 }, { -1000, 550 }, { -1500, 550 }
-};
-
-//!< bordure diagonale zone marron coté rouge
-const struct atlantronic_vect2 table_diag_border_red[2] =
-{
-	{  1175, -1000 }, {  1138, -251 }
-};
-
-//!< bordure case depart zone marron coté rouge
-const struct atlantronic_vect2 table_start_border_red[4] =
-{
-	{ 1500, 500 }, { 1000, 500 }, { 1000, 550 }, { 1500, 550 }
-};
-
-//!< totem coté bleu
-const struct atlantronic_vect2 table_totem_blue[5] =
-{
-	{ -525, -125 }, { -275, -125 }, { -275, 125 }, { -525, 125 }, { -525, -125 }
-};
-
-//!< totem coté rouge
-const struct atlantronic_vect2 table_totem_red[5] =
-{
-	{ 525, -125 }, { 275, -125 }, { 275, 125 }, { 525, 125 }, { 525, -125 }
-};
-
-//!< palmier (carre englobant)
-const struct atlantronic_vect2 table_palm[5] =
-{
-	{ -75, -75 }, { 75, -75 }, { 75, 75 }, { -75, 75 }, { -75, -75 }
-};
-
-//!< totem coté rouge
-const struct atlantronic_vect2 table_map[2] =
-{
-	{ -300, 990 }, { 300, 990 }
-};
-
-const struct atlantronic_polyline atlantronic_static_obj[STATIC_OBJ_NUM] =
-{
-	{ (struct atlantronic_vect2*) table_contour, 5 },
-	{ (struct atlantronic_vect2*) table_diag_border_blue, 2 },
-	{ (struct atlantronic_vect2*) table_start_border_blue, 4 },
-	{ (struct atlantronic_vect2*) table_totem_blue, 5 },
-	{ (struct atlantronic_vect2*) table_diag_border_red, 2 },
-	{ (struct atlantronic_vect2*) table_start_border_red, 4 },
-	{ (struct atlantronic_vect2*) table_totem_red, 5 },
-	{ (struct atlantronic_vect2*) table_palm, 5},
-	{ (struct atlantronic_vect2*) table_map, 2}
-};
+int atlantronic_static_obj_count = 1;
 
 const struct atlantronic_vect2 corner_loc[CORNER_NUM] =
 {
 	{ PARAM_RIGHT_CORNER_X / 65536.0f, PARAM_RIGHT_CORNER_Y / 65536.0f},
 	{ PARAM_LEFT_CORNER_X / 65536.0f,  PARAM_LEFT_CORNER_Y / 65536.0f},
+	{ PARAM_NP_X / 65536.0f,  PARAM_LEFT_CORNER_Y / 65536.0f},
 	{ PARAM_NP_X / 65536.0f,  PARAM_RIGHT_CORNER_Y / 65536.0f},
-	{ PARAM_NP_X / 65536.0f,  PARAM_LEFT_CORNER_Y / 65536.0f}
 };
+
+void atlantronic_add_object(int size, struct atlantronic_vect2* pt)
+{
+	if( atlantronic_static_obj_count < STATIC_OBJ_MAX)
+	{
+		atlantronic_static_obj[atlantronic_static_obj_count].pt = g_malloc(sizeof(struct atlantronic_vect2) * size);
+		memcpy(atlantronic_static_obj[atlantronic_static_obj_count].pt, pt, size * sizeof(struct atlantronic_vect2));
+		atlantronic_static_obj[atlantronic_static_obj_count].size = size;
+	}
+
+	atlantronic_static_obj_count++;
+}
+
+void atlantronic_move_object(int id, struct atlantronic_vect2 origin, struct atlantronic_vect3 delta)
+{
+	int i;
+	if( id < atlantronic_static_obj_count )
+	{
+		struct atlantronic_vect2* pt = atlantronic_static_obj[id].pt;
+		delta.ca = cos(delta.alpha);
+		delta.sa = sin(delta.alpha);
+
+		for( i = 0; i < atlantronic_static_obj[id].size; i++)
+		{
+			float dx = pt[i].x - origin.x;
+			float dy = pt[i].y - origin.y;
+			pt[i].x = origin.x + dx * delta.ca - dy * delta.sa + delta.x;
+			pt[i].y = origin.y + dx * delta.sa + dy * delta.ca + delta.y;
+		}
+	}
+}
 
 float sat(float x, float min, float max)
 {

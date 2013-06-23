@@ -82,7 +82,7 @@ static void atlantronic_hokuyo_update(struct atlantronic_hokuyo_state* s)
 		b.y = a.y + HOKUYO_MAX_DISTANCE * sin(hokuyo_pos_abs.alpha + (i - HOKUYO_MED) * HOKUYO_RES);
 		dist_min = HOKUYO_MAX_DISTANCE;
 
-		for(j = 0; j < sizeof(atlantronic_static_obj) / sizeof(atlantronic_static_obj[0]); j++)
+		for(j = 0; j < atlantronic_static_obj_count; j++)
 		{
 			int k = 0;
 			for(k = 0; k < atlantronic_static_obj[j].size - 1; k++)

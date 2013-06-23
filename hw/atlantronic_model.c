@@ -19,8 +19,9 @@
 #define ENCODER_NUM        2
 #define MODEL_FACTOR      10      //!< calcul du modele a 10x la frequence d'utilisation
 
-#define EVENT_CLOCK_FACTOR     1
-
+#define EVENT_CLOCK_FACTOR         1
+#define EVENT_NEW_OBJECT           2
+#define EVENT_MOVE_OBJECT          3
 
 struct atlantronic_model_rx_event
 {
@@ -245,7 +246,7 @@ static void atlantronic_model_compute(struct atlantronic_model_state* s)
 		atlantronic_vect2_loc_to_abs(&pos_new, &corner_loc[i], &corner_abs_new[i]);
 		struct atlantronic_vect2 h;
 
-		for(j = 0; j < sizeof(atlantronic_static_obj) / sizeof(atlantronic_static_obj[0]) && res ; j++)
+		for(j = 0; j < atlantronic_static_obj_count && res ; j++)
 		{
 			int k = 0;
 			for(k = 0; k < atlantronic_static_obj[j].size - 1 && res ; k++)
@@ -355,6 +356,12 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 			{
 				system_clock_scale = INT_MAX/2;
 			}
+			break;
+		case EVENT_NEW_OBJECT:
+			atlantronic_add_object(MIN(event->data[0], (sizeof(event->data)-1)/sizeof(struct atlantronic_vect2)), (struct atlantronic_vect2*)&event->data[1]);
+			break;
+		case EVENT_MOVE_OBJECT:
+			atlantronic_move_object(event->data[0], *((struct atlantronic_vect2*)&event->data[1]), *((struct atlantronic_vect3*)&event->data[1+sizeof(struct atlantronic_vect2)]));
 			break;
 	}
 }
