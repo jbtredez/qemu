@@ -3,7 +3,7 @@
 #include "kernel/cpu/cpu.h"
 #undef LINUX
 
-#include "kernel/driver/usb/otgd_fs_regs.h"
+#include "kernel/driver/usb/stm32f1xx/otgd_fs_regs.h"
 #include "atlantronic_model.h"
 #include "atlantronic_tools.h"
 
