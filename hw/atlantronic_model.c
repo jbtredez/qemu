@@ -28,8 +28,8 @@ struct atlantronic_model_rx_event
 	uint32_t type;        //!< type
 	union
 	{
-		uint8_t data[64];     //!< données
-		uint32_t data32[16];  //!< données
+		uint8_t data[256];     //!< données
+		uint32_t data32[64];   //!< données
 	};
 };
 
