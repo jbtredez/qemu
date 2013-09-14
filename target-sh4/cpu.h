@@ -179,9 +179,6 @@ typedef struct CPUSH4State {
     CPU_COMMON
 
     int id;			/* CPU model */
-    uint32_t pvr;		/* Processor Version Register */
-    uint32_t prr;		/* Processor Revision Register */
-    uint32_t cvr;		/* Cache Version Register */
 
     void *intc_handle;
     int in_sleep;		/* SR_BL ignored during sleep */
@@ -191,6 +188,7 @@ typedef struct CPUSH4State {
 
 #include "cpu-qom.h"
 
+void sh4_translate_init(void);
 SuperHCPU *cpu_sh4_init(const char *cpu_model);
 int cpu_sh4_exec(CPUSH4State * s);
 int cpu_sh4_signal_handler(int host_signum, void *pinfo,
@@ -198,7 +196,6 @@ int cpu_sh4_signal_handler(int host_signum, void *pinfo,
 int cpu_sh4_handle_mmu_fault(CPUSH4State * env, target_ulong address, int rw,
                              int mmu_idx);
 #define cpu_handle_mmu_fault cpu_sh4_handle_mmu_fault
-void do_interrupt(CPUSH4State * env);
 
 void sh4_cpu_list(FILE *f, fprintf_function cpu_fprintf);
 #if !defined(CONFIG_USER_ONLY)
@@ -222,11 +219,6 @@ void cpu_sh4_write_mmaped_utlb_data(CPUSH4State *s, hwaddr addr,
 #endif
 
 int cpu_sh4_is_cached(CPUSH4State * env, target_ulong addr);
-
-static inline void cpu_set_tls(CPUSH4State *env, target_ulong newtls)
-{
-  env->gbr = newtls;
-}
 
 void cpu_load_tlb(CPUSH4State * env);
 
@@ -252,15 +244,6 @@ static inline int cpu_mmu_index (CPUSH4State *env)
 {
     return (env->sr & SR_MD) == 0 ? 1 : 0;
 }
-
-#if defined(CONFIG_USER_ONLY)
-static inline void cpu_clone_regs(CPUSH4State *env, target_ulong newsp)
-{
-    if (newsp)
-        env->gregs[15] = newsp;
-    env->gregs[0] = 0;
-}
-#endif
 
 #include "exec/cpu-all.h"
 
@@ -371,17 +354,9 @@ static inline void cpu_get_tb_cpu_state(CPUSH4State *env, target_ulong *pc,
 
 static inline bool cpu_has_work(CPUState *cpu)
 {
-    CPUSH4State *env = &SUPERH_CPU(cpu)->env;
-
-    return env->interrupt_request & CPU_INTERRUPT_HARD;
+    return cpu->interrupt_request & CPU_INTERRUPT_HARD;
 }
 
 #include "exec/exec-all.h"
-
-static inline void cpu_pc_from_tb(CPUSH4State *env, TranslationBlock *tb)
-{
-    env->pc = tb->pc;
-    env->flags = tb->flags;
-}
 
 #endif				/* _CPU_SH4_H */

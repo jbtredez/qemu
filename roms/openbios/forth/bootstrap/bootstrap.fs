@@ -49,6 +49,10 @@ variable #order 0 #order !
 defer context
 0 value vocabularies?
 
+defer locals-end
+0 value locals-dict
+variable locals-dict-buf
+
 \ 
 \ 7.3.7 Flag constants
 \ 
@@ -656,6 +660,7 @@ defer emit
 
 \ : type 0 do count emit loop drop ;
 
+: debug-type bounds ?do i c@ (emit) loop ;
 
 \ 
 \ 7.3.4.1 Text Input
@@ -859,6 +864,7 @@ variable span 0 span !
 \ 
 
 : cr linefeed emit ;
+: debug-cr linefeed (emit) ;
 : (cr carret emit ;
 : space bl emit ;
 : spaces 0 ?do space loop ;
@@ -925,6 +931,11 @@ variable #out  0 #out  !
   ;
 
 : $find ( name-str name-len -- xt true | name-str name-len false )
+  locals-dict 0<> if
+    locals-dict-buf @ find-wordlist ?dup if
+      exit
+    then
+  then
   vocabularies? if
     #order @ 0 ?do
       i cells context + @
@@ -1043,17 +1054,21 @@ variable #instance
     3 /n* + !
   then
 ;
-
-: to
-  ['] ' execute
+  
+: (to-xt) ( xt -- )  
   dup @ instance-cfa?
   state @ if
     swap ['] (lit) , , if ['] (ito) else ['] (to) then ,
   else
     if (ito) else /n + ! then
   then
-  ; immediate
+;
 
+: to
+  ['] ' execute
+  (to-xt)
+  ; immediate
+  
 : is ( xt "wordname<>" -- )
   parse-word $find if
     (to)
@@ -1426,6 +1441,10 @@ false value capital-hex?
   ;
 
 : ;
+  locals-dict 0<> if
+    0 ['] locals-dict /n + !
+    ['] locals-end , 
+  then
   ['] (semis) , reveal ['] [ execute
   ; immediate
 

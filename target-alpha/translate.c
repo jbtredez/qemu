@@ -38,7 +38,6 @@
 typedef struct DisasContext DisasContext;
 struct DisasContext {
     struct TranslationBlock *tb;
-    CPUAlphaState *env;
     uint64_t pc;
     int mem_idx;
 
@@ -46,6 +45,11 @@ struct DisasContext {
     int tb_rm;
     /* Current flush-to-zero setting for this TB.  */
     int tb_ftz;
+
+    /* implver value for this CPU.  */
+    int implver;
+
+    bool singlestep_enabled;
 };
 
 /* Return values from translate_one, indicating the state of the TB.
@@ -380,7 +384,7 @@ static int use_goto_tb(DisasContext *ctx, uint64_t dest)
     /* Check for the dest on the same page as the start of the TB.  We
        also want to suppress goto_tb in the case of single-steping and IO.  */
     return (((ctx->tb->pc ^ dest) & TARGET_PAGE_MASK) == 0
-            && !ctx->env->singlestep_enabled
+            && !ctx->singlestep_enabled
             && !(ctx->tb->cflags & CF_LAST_IO));
 }
 
@@ -1390,7 +1394,6 @@ static inline void glue(gen_, name)(int ra, int rb, int rc, int islit,\
         tcg_temp_free(tmp1);                                          \
     }                                                                 \
 }
-ARITH3(umulh)
 ARITH3(cmpbge)
 ARITH3(minub8)
 ARITH3(minsb8)
@@ -1635,15 +1638,19 @@ static ExitStatus gen_mfpr(int ra, int regno)
         return NO_EXIT;
     }
 
-    if (regno == 250) {
-        /* WALL_TIME */
+    /* Special help for VMTIME and WALLTIME.  */
+    if (regno == 250 || regno == 249) {
+	void (*helper)(TCGv) = gen_helper_get_walltime;
+	if (regno == 249) {
+		helper = gen_helper_get_vmtime;
+	}
         if (use_icount) {
             gen_io_start();
-            gen_helper_get_time(cpu_ir[ra]);
+            helper(cpu_ir[ra]);
             gen_io_end();
             return EXIT_PC_STALE;
         } else {
-            gen_helper_get_time(cpu_ir[ra]);
+            helper(cpu_ir[ra]);
             return NO_EXIT;
         }
     }
@@ -1687,7 +1694,8 @@ static ExitStatus gen_mtpr(DisasContext *ctx, int rb, int regno)
     case 253:
         /* WAIT */
         tmp = tcg_const_i64(1);
-        tcg_gen_st32_i64(tmp, cpu_env, offsetof(CPUAlphaState, halted));
+        tcg_gen_st32_i64(tmp, cpu_env, -offsetof(AlphaCPU, env) +
+                                       offsetof(CPUState, halted));
         return gen_excp(ctx, EXCP_HLT, 0);
 
     case 252:
@@ -2244,8 +2252,9 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t insn)
             break;
         case 0x6C:
             /* IMPLVER */
-            if (rc != 31)
-                tcg_gen_movi_i64(cpu_ir[rc], ctx->env->implver);
+            if (rc != 31) {
+                tcg_gen_movi_i64(cpu_ir[rc], ctx->implver);
+            }
             break;
         default:
             goto invalid_opc;
@@ -2426,7 +2435,24 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t insn)
             break;
         case 0x30:
             /* UMULH */
-            gen_umulh(ra, rb, rc, islit, lit);
+            {
+                TCGv low;
+                if (unlikely(rc == 31)){
+                    break;
+                }
+                if (ra == 31) {
+                    tcg_gen_movi_i64(cpu_ir[rc], 0);
+                    break;
+                }
+                low = tcg_temp_new();
+                if (islit) {
+                    tcg_gen_movi_tl(low, lit);
+                    tcg_gen_mulu2_i64(low, cpu_ir[rc], cpu_ir[ra], low);
+                } else {
+                    tcg_gen_mulu2_i64(low, cpu_ir[rc], cpu_ir[ra], cpu_ir[rb]);
+                }
+                tcg_temp_free(low);
+            }
             break;
         case 0x40:
             /* MULL/V */
@@ -3358,10 +3384,12 @@ static ExitStatus translate_one(DisasContext *ctx, uint32_t insn)
     return ret;
 }
 
-static inline void gen_intermediate_code_internal(CPUAlphaState *env,
+static inline void gen_intermediate_code_internal(AlphaCPU *cpu,
                                                   TranslationBlock *tb,
-                                                  int search_pc)
+                                                  bool search_pc)
 {
+    CPUState *cs = CPU(cpu);
+    CPUAlphaState *env = &cpu->env;
     DisasContext ctx, *ctxp = &ctx;
     target_ulong pc_start;
     uint32_t insn;
@@ -3376,9 +3404,10 @@ static inline void gen_intermediate_code_internal(CPUAlphaState *env,
     gen_opc_end = tcg_ctx.gen_opc_buf + OPC_MAX_SIZE;
 
     ctx.tb = tb;
-    ctx.env = env;
     ctx.pc = pc_start;
     ctx.mem_idx = cpu_mmu_index(env);
+    ctx.implver = env->implver;
+    ctx.singlestep_enabled = cs->singlestep_enabled;
 
     /* ??? Every TB begins with unset rounding mode, to be initialized on
        the first fp insn of the TB.  Alternately we could define a proper
@@ -3395,7 +3424,7 @@ static inline void gen_intermediate_code_internal(CPUAlphaState *env,
     if (max_insns == 0)
         max_insns = CF_COUNT_MASK;
 
-    gen_icount_start();
+    gen_tb_start();
     do {
         if (unlikely(!QTAILQ_EMPTY(&env->breakpoints))) {
             QTAILQ_FOREACH(bp, &env->breakpoints, entry) {
@@ -3435,7 +3464,7 @@ static inline void gen_intermediate_code_internal(CPUAlphaState *env,
                 || tcg_ctx.gen_opc_ptr >= gen_opc_end
                 || num_insns >= max_insns
                 || singlestep
-                || env->singlestep_enabled)) {
+                || ctx.singlestep_enabled)) {
             ret = EXIT_PC_STALE;
         }
     } while (ret == NO_EXIT);
@@ -3452,7 +3481,7 @@ static inline void gen_intermediate_code_internal(CPUAlphaState *env,
         tcg_gen_movi_i64(cpu_pc, ctx.pc);
         /* FALLTHRU */
     case EXIT_PC_UPDATED:
-        if (env->singlestep_enabled) {
+        if (ctx.singlestep_enabled) {
             gen_excp_1(EXCP_DEBUG, 0);
         } else {
             tcg_gen_exit_tb(0);
@@ -3462,7 +3491,7 @@ static inline void gen_intermediate_code_internal(CPUAlphaState *env,
         abort();
     }
 
-    gen_icount_end(tb, num_insns);
+    gen_tb_end(tb, num_insns);
     *tcg_ctx.gen_opc_ptr = INDEX_op_end;
     if (search_pc) {
         j = tcg_ctx.gen_opc_ptr - tcg_ctx.gen_opc_buf;
@@ -3485,12 +3514,12 @@ static inline void gen_intermediate_code_internal(CPUAlphaState *env,
 
 void gen_intermediate_code (CPUAlphaState *env, struct TranslationBlock *tb)
 {
-    gen_intermediate_code_internal(env, tb, 0);
+    gen_intermediate_code_internal(alpha_env_get_cpu(env), tb, false);
 }
 
 void gen_intermediate_code_pc (CPUAlphaState *env, struct TranslationBlock *tb)
 {
-    gen_intermediate_code_internal(env, tb, 1);
+    gen_intermediate_code_internal(alpha_env_get_cpu(env), tb, true);
 }
 
 void restore_state_to_opc(CPUAlphaState *env, TranslationBlock *tb, int pc_pos)

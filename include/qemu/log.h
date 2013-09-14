@@ -2,6 +2,10 @@
 #define QEMU_LOG_H
 
 #include <stdarg.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include "qemu/compiler.h"
+#include "qom/cpu.h"
 #ifdef NEED_CPU_H
 #include "disas/disas.h"
 #endif
@@ -67,22 +71,37 @@ void GCC_FMT_ATTR(2, 3) qemu_log_mask(int mask, const char *fmt, ...);
 
 /* Special cases: */
 
-#ifdef NEED_CPU_H
 /* cpu_dump_state() logging functions: */
-static inline void log_cpu_state(CPUArchState *env1, int flags)
+/**
+ * log_cpu_state:
+ * @cpu: The CPU whose state is to be logged.
+ * @flags: Flags what to log.
+ *
+ * Logs the output of cpu_dump_state().
+ */
+static inline void log_cpu_state(CPUState *cpu, int flags)
 {
     if (qemu_log_enabled()) {
-        cpu_dump_state(env1, qemu_logfile, fprintf, flags);
+        cpu_dump_state(cpu, qemu_logfile, fprintf, flags);
     }
 }
 
-static inline void log_cpu_state_mask(int mask, CPUArchState *env1, int flags)
+/**
+ * log_cpu_state_mask:
+ * @mask: Mask when to log.
+ * @cpu: The CPU whose state is to be logged.
+ * @flags: Flags what to log.
+ *
+ * Logs the output of cpu_dump_state() if loglevel includes @mask.
+ */
+static inline void log_cpu_state_mask(int mask, CPUState *cpu, int flags)
 {
     if (qemu_loglevel & mask) {
-        log_cpu_state(env1, flags);
+        log_cpu_state(cpu, flags);
     }
 }
 
+#ifdef NEED_CPU_H
 /* disas() and target_disas() to qemu_logfile: */
 static inline void log_target_disas(CPUArchState *env, target_ulong start,
                                     target_ulong len, int flags)
@@ -116,8 +135,12 @@ static inline void qemu_log_flush(void)
 /* Close the log file */
 static inline void qemu_log_close(void)
 {
-    fclose(qemu_logfile);
-    qemu_logfile = NULL;
+    if (qemu_logfile) {
+        if (qemu_logfile != stderr) {
+            fclose(qemu_logfile);
+        }
+        qemu_logfile = NULL;
+    }
 }
 
 /* Set up a new log file */
@@ -126,35 +149,36 @@ static inline void qemu_log_set_file(FILE *f)
     qemu_logfile = f;
 }
 
-/* Set up a new log file, only if none is set */
-static inline void qemu_log_try_set_file(FILE *f)
-{
-    if (!qemu_logfile) {
-        qemu_logfile = f;
-    }
-}
-
 /* define log items */
-typedef struct CPULogItem {
+typedef struct QEMULogItem {
     int mask;
     const char *name;
     const char *help;
-} CPULogItem;
+} QEMULogItem;
 
-extern const CPULogItem cpu_log_items[];
+extern const QEMULogItem qemu_log_items[];
 
-void qemu_set_log(int log_flags, bool use_own_buffers);
+/* This is the function that actually does the work of
+ * changing the log level; it should only be accessed via
+ * the qemu_set_log() wrapper.
+ */
+void do_qemu_set_log(int log_flags, bool use_own_buffers);
 
-static inline void cpu_set_log(int log_flags)
+static inline void qemu_set_log(int log_flags)
 {
 #ifdef CONFIG_USER_ONLY
-    qemu_set_log(log_flags, true);
+    do_qemu_set_log(log_flags, true);
 #else
-    qemu_set_log(log_flags, false);
+    do_qemu_set_log(log_flags, false);
 #endif
 }
 
-void cpu_set_log_filename(const char *filename);
-int cpu_str_to_log_mask(const char *str);
+void qemu_set_log_filename(const char *filename);
+int qemu_str_to_log_mask(const char *str);
+
+/* Print a usage message listing all the valid logging categories
+ * to the specified FILE*.
+ */
+void qemu_print_log_usage(FILE *f);
 
 #endif

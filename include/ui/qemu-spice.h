@@ -27,6 +27,7 @@
 #include "monitor/monitor.h"
 
 extern int using_spice;
+extern int spice_displays;
 
 void qemu_spice_init(void);
 void qemu_spice_input_init(void);
@@ -44,16 +45,20 @@ int qemu_spice_migrate_info(const char *hostname, int port, int tls_port,
 void do_info_spice_print(Monitor *mon, const QObject *data);
 void do_info_spice(Monitor *mon, QObject **ret_data);
 
-CharDriverState *qemu_chr_open_spice(QemuOpts *opts);
+CharDriverState *qemu_chr_open_spice_vmc(const char *type);
 #if SPICE_SERVER_VERSION >= 0x000c02
-CharDriverState *qemu_chr_open_spice_port(QemuOpts *opts);
+CharDriverState *qemu_chr_open_spice_port(const char *name);
 void qemu_spice_register_ports(void);
+#else
+static inline CharDriverState *qemu_chr_open_spice_port(const char *name)
+{ return NULL; }
 #endif
 
 #else  /* CONFIG_SPICE */
 #include "monitor/monitor.h"
 
 #define using_spice 0
+#define spice_displays 0
 static inline int qemu_spice_set_passwd(const char *passwd,
                                         bool fail_if_connected,
                                         bool disconnect_if_connected)

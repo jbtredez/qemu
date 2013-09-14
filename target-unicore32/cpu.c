@@ -16,6 +16,13 @@
 #include "qemu-common.h"
 #include "migration/vmstate.h"
 
+static void uc32_cpu_set_pc(CPUState *cs, vaddr value)
+{
+    UniCore32CPU *cpu = UNICORE32_CPU(cs);
+
+    cpu->env.regs[31] = value;
+}
+
 static inline void set_feature(CPUUniCore32State *env, int feature)
 {
     env->features |= feature;
@@ -81,11 +88,23 @@ static const UniCore32CPUInfo uc32_cpus[] = {
     { .name = "any",        .instance_init = uc32_any_cpu_initfn },
 };
 
+static void uc32_cpu_realizefn(DeviceState *dev, Error **errp)
+{
+    UniCore32CPUClass *ucc = UNICORE32_CPU_GET_CLASS(dev);
+
+    qemu_init_vcpu(CPU(dev));
+
+    ucc->parent_realize(dev, errp);
+}
+
 static void uc32_cpu_initfn(Object *obj)
 {
+    CPUState *cs = CPU(obj);
     UniCore32CPU *cpu = UNICORE32_CPU(obj);
     CPUUniCore32State *env = &cpu->env;
+    static bool inited;
 
+    cs->env_ptr = env;
     cpu_exec_init(env);
 
 #ifdef CONFIG_USER_ONLY
@@ -97,6 +116,11 @@ static void uc32_cpu_initfn(Object *obj)
 #endif
 
     tlb_flush(env, 1);
+
+    if (tcg_enabled() && !inited) {
+        inited = true;
+        uc32_translate_init();
+    }
 }
 
 static const VMStateDescription vmstate_uc32_cpu = {
@@ -108,8 +132,18 @@ static void uc32_cpu_class_init(ObjectClass *oc, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
     CPUClass *cc = CPU_CLASS(oc);
+    UniCore32CPUClass *ucc = UNICORE32_CPU_CLASS(oc);
+
+    ucc->parent_realize = dc->realize;
+    dc->realize = uc32_cpu_realizefn;
 
     cc->class_by_name = uc32_cpu_class_by_name;
+    cc->do_interrupt = uc32_cpu_do_interrupt;
+    cc->dump_state = uc32_cpu_dump_state;
+    cc->set_pc = uc32_cpu_set_pc;
+#ifndef CONFIG_USER_ONLY
+    cc->get_phys_page_debug = uc32_cpu_get_phys_page_debug;
+#endif
     dc->vmsd = &vmstate_uc32_cpu;
 }
 

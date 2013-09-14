@@ -1922,39 +1922,43 @@ static inline void tcg_out_op(TCGContext *s, TCGOpcode opc,
         tcg_out_qemu_st(s, args, 3);
         break;
 
+    OP_32_64(mulu2):
+        tcg_out_modrm(s, OPC_GRP3_Ev + rexw, EXT3_MUL, args[3]);
+        break;
+    OP_32_64(muls2):
+        tcg_out_modrm(s, OPC_GRP3_Ev + rexw, EXT3_IMUL, args[3]);
+        break;
+    OP_32_64(add2):
+        if (const_args[4]) {
+            tgen_arithi(s, ARITH_ADD + rexw, args[0], args[4], 1);
+        } else {
+            tgen_arithr(s, ARITH_ADD + rexw, args[0], args[4]);
+        }
+        if (const_args[5]) {
+            tgen_arithi(s, ARITH_ADC + rexw, args[1], args[5], 1);
+        } else {
+            tgen_arithr(s, ARITH_ADC + rexw, args[1], args[5]);
+        }
+        break;
+    OP_32_64(sub2):
+        if (const_args[4]) {
+            tgen_arithi(s, ARITH_SUB + rexw, args[0], args[4], 1);
+        } else {
+            tgen_arithr(s, ARITH_SUB + rexw, args[0], args[4]);
+        }
+        if (const_args[5]) {
+            tgen_arithi(s, ARITH_SBB + rexw, args[1], args[5], 1);
+        } else {
+            tgen_arithr(s, ARITH_SBB + rexw, args[1], args[5]);
+        }
+        break;
+
 #if TCG_TARGET_REG_BITS == 32
     case INDEX_op_brcond2_i32:
         tcg_out_brcond2(s, args, const_args, 0);
         break;
     case INDEX_op_setcond2_i32:
         tcg_out_setcond2(s, args, const_args);
-        break;
-    case INDEX_op_mulu2_i32:
-        tcg_out_modrm(s, OPC_GRP3_Ev, EXT3_MUL, args[3]);
-        break;
-    case INDEX_op_add2_i32:
-        if (const_args[4]) {
-            tgen_arithi(s, ARITH_ADD, args[0], args[4], 1);
-        } else {
-            tgen_arithr(s, ARITH_ADD, args[0], args[4]);
-        }
-        if (const_args[5]) {
-            tgen_arithi(s, ARITH_ADC, args[1], args[5], 1);
-        } else {
-            tgen_arithr(s, ARITH_ADC, args[1], args[5]);
-        }
-        break;
-    case INDEX_op_sub2_i32:
-        if (const_args[4]) {
-            tgen_arithi(s, ARITH_SUB, args[0], args[4], 1);
-        } else {
-            tgen_arithr(s, ARITH_SUB, args[0], args[4]);
-        }
-        if (const_args[5]) {
-            tgen_arithi(s, ARITH_SBB, args[1], args[5], 1);
-        } else {
-            tgen_arithr(s, ARITH_SBB, args[1], args[5]);
-        }
         break;
 #else /* TCG_TARGET_REG_BITS == 64 */
     case INDEX_op_movi_i64:
@@ -2078,10 +2082,12 @@ static const TCGTargetOpDef x86_op_defs[] = {
     { INDEX_op_movcond_i32, { "r", "r", "ri", "r", "0" } },
 #endif
 
-#if TCG_TARGET_REG_BITS == 32
     { INDEX_op_mulu2_i32, { "a", "d", "a", "r" } },
+    { INDEX_op_muls2_i32, { "a", "d", "a", "r" } },
     { INDEX_op_add2_i32, { "r", "r", "0", "1", "ri", "ri" } },
     { INDEX_op_sub2_i32, { "r", "r", "0", "1", "ri", "ri" } },
+
+#if TCG_TARGET_REG_BITS == 32
     { INDEX_op_brcond2_i32, { "r", "r", "ri", "ri" } },
     { INDEX_op_setcond2_i32, { "r", "r", "r", "ri", "ri" } },
 #else
@@ -2132,6 +2138,11 @@ static const TCGTargetOpDef x86_op_defs[] = {
 
     { INDEX_op_deposit_i64, { "Q", "0", "Q" } },
     { INDEX_op_movcond_i64, { "r", "r", "re", "r", "0" } },
+
+    { INDEX_op_mulu2_i64, { "a", "d", "a", "r" } },
+    { INDEX_op_muls2_i64, { "a", "d", "a", "r" } },
+    { INDEX_op_add2_i64, { "r", "r", "0", "1", "re", "re" } },
+    { INDEX_op_sub2_i64, { "r", "r", "0", "1", "re", "re" } },
 #endif
 
 #if TCG_TARGET_REG_BITS == 64
@@ -2272,12 +2283,6 @@ static void tcg_target_init(TCGContext *s)
     }
 #endif
 
-#if !defined(CONFIG_USER_ONLY)
-    /* fail safe */
-    if ((1 << CPU_TLB_ENTRY_BITS) != sizeof(CPUTLBEntry))
-        tcg_abort();
-#endif
-
     if (TCG_TARGET_REG_BITS == 64) {
         tcg_regset_set32(tcg_target_available_regs[TCG_TYPE_I32], 0, 0xffff);
         tcg_regset_set32(tcg_target_available_regs[TCG_TYPE_I64], 0, 0xffff);
@@ -2307,28 +2312,14 @@ static void tcg_target_init(TCGContext *s)
 }
 
 typedef struct {
-    uint32_t len __attribute__((aligned((sizeof(void *)))));
-    uint32_t id;
-    uint8_t version;
-    char augmentation[1];
-    uint8_t code_align;
-    uint8_t data_align;
-    uint8_t return_column;
-} DebugFrameCIE;
-
-typedef struct {
-    uint32_t len __attribute__((aligned((sizeof(void *)))));
-    uint32_t cie_offset;
-    tcg_target_long func_start __attribute__((packed));
-    tcg_target_long func_len __attribute__((packed));
-    uint8_t def_cfa[4];
-    uint8_t reg_ofs[14];
-} DebugFrameFDE;
-
-typedef struct {
     DebugFrameCIE cie;
-    DebugFrameFDE fde;
+    DebugFrameFDEHeader fde;
+    uint8_t fde_def_cfa[4];
+    uint8_t fde_reg_ofs[14];
 } DebugFrame;
+
+/* We're expecting a 2 byte uleb128 encoded value.  */
+QEMU_BUILD_BUG_ON(FRAME_SIZE >= (1 << 14));
 
 #if !defined(__ELF__)
     /* Host machine without ELF. */
@@ -2342,13 +2333,15 @@ static DebugFrame debug_frame = {
     .cie.data_align = 0x78,             /* sleb128 -8 */
     .cie.return_column = 16,
 
-    .fde.len = sizeof(DebugFrameFDE)-4, /* length after .len member */
-    .fde.def_cfa = {
+    /* Total FDE size does not include the "len" member.  */
+    .fde.len = sizeof(DebugFrame) - offsetof(DebugFrame, fde.cie_offset),
+
+    .fde_def_cfa = {
         12, 7,                          /* DW_CFA_def_cfa %rsp, ... */
         (FRAME_SIZE & 0x7f) | 0x80,     /* ... uleb128 FRAME_SIZE */
         (FRAME_SIZE >> 7)
     },
-    .fde.reg_ofs = {
+    .fde_reg_ofs = {
         0x90, 1,                        /* DW_CFA_offset, %rip, -8 */
         /* The following ordering must match tcg_target_callee_save_regs.  */
         0x86, 2,                        /* DW_CFA_offset, %rbp, -16 */
@@ -2369,13 +2362,15 @@ static DebugFrame debug_frame = {
     .cie.data_align = 0x7c,             /* sleb128 -4 */
     .cie.return_column = 8,
 
-    .fde.len = sizeof(DebugFrameFDE)-4, /* length after .len member */
-    .fde.def_cfa = {
+    /* Total FDE size does not include the "len" member.  */
+    .fde.len = sizeof(DebugFrame) - offsetof(DebugFrame, fde.cie_offset),
+
+    .fde_def_cfa = {
         12, 4,                          /* DW_CFA_def_cfa %esp, ... */
         (FRAME_SIZE & 0x7f) | 0x80,     /* ... uleb128 FRAME_SIZE */
         (FRAME_SIZE >> 7)
     },
-    .fde.reg_ofs = {
+    .fde_reg_ofs = {
         0x88, 1,                        /* DW_CFA_offset, %eip, -4 */
         /* The following ordering must match tcg_target_callee_save_regs.  */
         0x85, 2,                        /* DW_CFA_offset, %ebp, -8 */
@@ -2389,9 +2384,6 @@ static DebugFrame debug_frame = {
 #if defined(ELF_HOST_MACHINE)
 void tcg_register_jit(void *buf, size_t buf_size)
 {
-    /* We're expecting a 2 byte uleb128 encoded value.  */
-    assert(FRAME_SIZE >> 14 == 0);
-
     debug_frame.fde.func_start = (tcg_target_long) buf;
     debug_frame.fde.func_len = buf_size;
 

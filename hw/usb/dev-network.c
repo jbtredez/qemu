@@ -27,6 +27,7 @@
 #include "hw/usb.h"
 #include "hw/usb/desc.h"
 #include "net/net.h"
+#include "qapi/qmp/qerror.h"
 #include "qemu/queue.h"
 #include "qemu/config-file.h"
 #include "sysemu/sysemu.h"
@@ -855,7 +856,7 @@ static void *rndis_queue_response(USBNetState *s, unsigned int length)
             g_malloc0(sizeof(struct rndis_response) + length);
 
     if (QTAILQ_EMPTY(&s->rndis_resp)) {
-        usb_wakeup(s->intr);
+        usb_wakeup(s->intr, 0);
     }
 
     QTAILQ_INSERT_TAIL(&s->rndis_resp, r, entries);
@@ -1428,6 +1429,7 @@ static void usb_net_class_initfn(ObjectClass *klass, void *data)
     uc->handle_control = usb_net_handle_control;
     uc->handle_data    = usb_net_handle_data;
     uc->handle_destroy = usb_net_handle_destroy;
+    set_bit(DEVICE_CATEGORY_NETWORK, dc->categories);
     dc->fw_name = "network";
     dc->vmsd = &vmstate_usb_net;
     dc->props = net_properties;

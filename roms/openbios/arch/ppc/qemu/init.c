@@ -59,6 +59,14 @@ unexpected_excep(int vector)
     }
 }
 
+extern void __divide_error(void);
+
+void
+__divide_error(void)
+{
+    return;
+}
+
 enum {
     ARCH_PREP = 0,
     ARCH_MAC99,
@@ -68,7 +76,7 @@ enum {
 
 int is_apple(void)
 {
-    return 1;
+    return is_oldworld() || is_newworld();
 }
 
 int is_oldworld(void)
@@ -255,7 +263,7 @@ cpu_generic_init(const struct cpudef *cpu)
     push_str("timebase-frequency");
     fword("property");
 
-    PUSH(fw_cfg_read_i32(FW_CFG_PPC_CPUFREQ));
+    PUSH(fw_cfg_read_i32(FW_CFG_PPC_CLOCKFREQ));
     fword("encode-int");
     push_str("clock-frequency");
     fword("property");
@@ -613,6 +621,22 @@ static void kvm_of_init(void)
     fword("finish-device");
 }
 
+/*
+ *  filll        ( addr bytes quad -- )
+ */
+
+static void ffilll(void)
+{
+    const u32 longval = POP();
+    u32 bytes = POP();
+    u32 *laddr = (u32 *)cell2pointer(POP());
+    u32 len;
+    
+    for (len = 0; len < bytes / sizeof(u32); len++) {
+        *laddr++ = longval;
+    }   
+}
+
 void
 arch_of_init(void)
 {
@@ -718,6 +742,9 @@ arch_of_init(void)
         push_str("PowerMac2,1");
         fword("encode-string");
         push_str("MacRISC");
+        fword("encode-string");
+        fword("encode+");
+        push_str("MacRISC2");
         fword("encode-string");
         fword("encode+");
         push_str("Power Macintosh");
@@ -831,7 +858,7 @@ arch_of_init(void)
     }
 
     /* Setup default boot devices */
-    snprintf(buf, sizeof(buf), "%s:,\\\\:tbxi %s:,\\ppc\\bootinfo.txt", boot_path, boot_path);
+    snprintf(buf, sizeof(buf), "%s:,\\\\:tbxi %s:,\\ppc\\bootinfo.txt %s:,%%BOOT", boot_path, boot_path, boot_path);
     push_str(buf);
     fword("encode-string");
     push_str("boot-device");
@@ -877,6 +904,9 @@ arch_of_init(void)
 
     device_end();
 
+    /* Implementation of filll word (required by BootX) */
+    bind_func("filll", ffilll);
+    
     bind_func("platform-boot", boot);
     bind_func("(go)", go);
 }

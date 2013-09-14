@@ -15,6 +15,7 @@
 #include <stdbool.h>
 #include <glib.h>
 #include <getopt.h>
+#include <glib/gstdio.h>
 #ifndef _WIN32
 #include <syslog.h>
 #include <sys/wait.h>
@@ -30,6 +31,7 @@
 #include "qapi/qmp/qerror.h"
 #include "qapi/qmp/dispatch.h"
 #include "qga/channel.h"
+#include "qemu/bswap.h"
 #ifdef _WIN32
 #include "qga/service-win32.h"
 #include <windows.h>
@@ -43,15 +45,25 @@
 
 #ifndef _WIN32
 #define QGA_VIRTIO_PATH_DEFAULT "/dev/virtio-ports/org.qemu.guest_agent.0"
+#define QGA_STATE_RELATIVE_DIR  "run"
 #else
 #define QGA_VIRTIO_PATH_DEFAULT "\\\\.\\Global\\org.qemu.guest_agent.0"
+#define QGA_STATE_RELATIVE_DIR  "qemu-ga"
 #endif
-#define QGA_STATEDIR_DEFAULT CONFIG_QEMU_LOCALSTATEDIR "/run"
-#define QGA_PIDFILE_DEFAULT QGA_STATEDIR_DEFAULT "/qemu-ga.pid"
 #ifdef CONFIG_FSFREEZE
 #define QGA_FSFREEZE_HOOK_DEFAULT CONFIG_QEMU_CONFDIR "/fsfreeze-hook"
 #endif
 #define QGA_SENTINEL_BYTE 0xFF
+
+static struct {
+    const char *state_dir;
+    const char *pidfile;
+} dfl_pathnames;
+
+typedef struct GAPersistentState {
+#define QGA_PSTATE_DEFAULT_FD_COUNTER 1000
+    int64_t fd_counter;
+} GAPersistentState;
 
 struct GAState {
     JSONMessageParser parser;
@@ -76,6 +88,8 @@ struct GAState {
 #ifdef CONFIG_FSFREEZE
     const char *fsfreeze_hook;
 #endif
+    const gchar *pstate_filepath;
+    GAPersistentState pstate;
 };
 
 struct GAState *ga_state;
@@ -85,6 +99,7 @@ static const char *ga_freeze_whitelist[] = {
     "guest-ping",
     "guest-info",
     "guest-sync",
+    "guest-sync-delimited",
     "guest-fsfreeze-status",
     "guest-fsfreeze-thaw",
     NULL
@@ -95,6 +110,17 @@ DWORD WINAPI service_ctrl_handler(DWORD ctrl, DWORD type, LPVOID data,
                                   LPVOID ctx);
 VOID WINAPI service_main(DWORD argc, TCHAR *argv[]);
 #endif
+
+static void
+init_dfl_pathnames(void)
+{
+    g_assert(dfl_pathnames.state_dir == NULL);
+    g_assert(dfl_pathnames.pidfile == NULL);
+    dfl_pathnames.state_dir = qemu_get_local_state_pathname(
+      QGA_STATE_RELATIVE_DIR);
+    dfl_pathnames.pidfile   = qemu_get_local_state_pathname(
+      QGA_STATE_RELATIVE_DIR G_DIR_SEPARATOR_S "qemu-ga.pid");
+}
 
 static void quit_handler(int sig)
 {
@@ -188,11 +214,11 @@ static void usage(const char *cmd)
 "  -h, --help        display this help and exit\n"
 "\n"
 "Report bugs to <mdroth@linux.vnet.ibm.com>\n"
-    , cmd, QEMU_VERSION, QGA_VIRTIO_PATH_DEFAULT, QGA_PIDFILE_DEFAULT,
+    , cmd, QEMU_VERSION, QGA_VIRTIO_PATH_DEFAULT, dfl_pathnames.pidfile,
 #ifdef CONFIG_FSFREEZE
     QGA_FSFREEZE_HOOK_DEFAULT,
 #endif
-    QGA_STATEDIR_DEFAULT);
+    dfl_pathnames.state_dir);
 }
 
 static const char *ga_log_level_str(GLogLevelFlags level)
@@ -468,7 +494,7 @@ static void become_daemon(const char *pidfile)
         }
     }
 
-    umask(0);
+    umask(S_IRWXG | S_IRWXO);
     sid = setsid();
     if (sid < 0) {
         goto fail;
@@ -724,16 +750,185 @@ VOID WINAPI service_main(DWORD argc, TCHAR *argv[])
 }
 #endif
 
+static void set_persistent_state_defaults(GAPersistentState *pstate)
+{
+    g_assert(pstate);
+    pstate->fd_counter = QGA_PSTATE_DEFAULT_FD_COUNTER;
+}
+
+static void persistent_state_from_keyfile(GAPersistentState *pstate,
+                                          GKeyFile *keyfile)
+{
+    g_assert(pstate);
+    g_assert(keyfile);
+    /* if any fields are missing, either because the file was tampered with
+     * by agents of chaos, or because the field wasn't present at the time the
+     * file was created, the best we can ever do is start over with the default
+     * values. so load them now, and ignore any errors in accessing key-value
+     * pairs
+     */
+    set_persistent_state_defaults(pstate);
+
+    if (g_key_file_has_key(keyfile, "global", "fd_counter", NULL)) {
+        pstate->fd_counter =
+            g_key_file_get_integer(keyfile, "global", "fd_counter", NULL);
+    }
+}
+
+static void persistent_state_to_keyfile(const GAPersistentState *pstate,
+                                        GKeyFile *keyfile)
+{
+    g_assert(pstate);
+    g_assert(keyfile);
+
+    g_key_file_set_integer(keyfile, "global", "fd_counter", pstate->fd_counter);
+}
+
+static gboolean write_persistent_state(const GAPersistentState *pstate,
+                                       const gchar *path)
+{
+    GKeyFile *keyfile = g_key_file_new();
+    GError *gerr = NULL;
+    gboolean ret = true;
+    gchar *data = NULL;
+    gsize data_len;
+
+    g_assert(pstate);
+
+    persistent_state_to_keyfile(pstate, keyfile);
+    data = g_key_file_to_data(keyfile, &data_len, &gerr);
+    if (gerr) {
+        g_critical("failed to convert persistent state to string: %s",
+                   gerr->message);
+        ret = false;
+        goto out;
+    }
+
+    g_file_set_contents(path, data, data_len, &gerr);
+    if (gerr) {
+        g_critical("failed to write persistent state to %s: %s",
+                    path, gerr->message);
+        ret = false;
+        goto out;
+    }
+
+out:
+    if (gerr) {
+        g_error_free(gerr);
+    }
+    if (keyfile) {
+        g_key_file_free(keyfile);
+    }
+    g_free(data);
+    return ret;
+}
+
+static gboolean read_persistent_state(GAPersistentState *pstate,
+                                      const gchar *path, gboolean frozen)
+{
+    GKeyFile *keyfile = NULL;
+    GError *gerr = NULL;
+    struct stat st;
+    gboolean ret = true;
+
+    g_assert(pstate);
+
+    if (stat(path, &st) == -1) {
+        /* it's okay if state file doesn't exist, but any other error
+         * indicates a permissions issue or some other misconfiguration
+         * that we likely won't be able to recover from.
+         */
+        if (errno != ENOENT) {
+            g_critical("unable to access state file at path %s: %s",
+                       path, strerror(errno));
+            ret = false;
+            goto out;
+        }
+
+        /* file doesn't exist. initialize state to default values and
+         * attempt to save now. (we could wait till later when we have
+         * modified state we need to commit, but if there's a problem,
+         * such as a missing parent directory, we want to catch it now)
+         *
+         * there is a potential scenario where someone either managed to
+         * update the agent from a version that didn't use a key store
+         * while qemu-ga thought the filesystem was frozen, or
+         * deleted the key store prior to issuing a fsfreeze, prior
+         * to restarting the agent. in this case we go ahead and defer
+         * initial creation till we actually have modified state to
+         * write, otherwise fail to recover from freeze.
+         */
+        set_persistent_state_defaults(pstate);
+        if (!frozen) {
+            ret = write_persistent_state(pstate, path);
+            if (!ret) {
+                g_critical("unable to create state file at path %s", path);
+                ret = false;
+                goto out;
+            }
+        }
+        ret = true;
+        goto out;
+    }
+
+    keyfile = g_key_file_new();
+    g_key_file_load_from_file(keyfile, path, 0, &gerr);
+    if (gerr) {
+        g_critical("error loading persistent state from path: %s, %s",
+                   path, gerr->message);
+        ret = false;
+        goto out;
+    }
+
+    persistent_state_from_keyfile(pstate, keyfile);
+
+out:
+    if (keyfile) {
+        g_key_file_free(keyfile);
+    }
+    if (gerr) {
+        g_error_free(gerr);
+    }
+
+    return ret;
+}
+
+int64_t ga_get_fd_handle(GAState *s, Error **errp)
+{
+    int64_t handle;
+
+    g_assert(s->pstate_filepath);
+    /* we blacklist commands and avoid operations that potentially require
+     * writing to disk when we're in a frozen state. this includes opening
+     * new files, so we should never get here in that situation
+     */
+    g_assert(!ga_is_frozen(s));
+
+    handle = s->pstate.fd_counter++;
+
+    /* This should never happen on a reasonable timeframe, as guest-file-open
+     * would have to be issued 2^63 times */
+    if (s->pstate.fd_counter == INT64_MAX) {
+        abort();
+    }
+
+    if (!write_persistent_state(&s->pstate, s->pstate_filepath)) {
+        error_setg(errp, "failed to commit persistent state to disk");
+    }
+
+    return handle;
+}
+
 int main(int argc, char **argv)
 {
     const char *sopt = "hVvdm:p:l:f:F::b:s:t:";
     const char *method = NULL, *path = NULL;
     const char *log_filepath = NULL;
-    const char *pid_filepath = QGA_PIDFILE_DEFAULT;
+    const char *pid_filepath;
 #ifdef CONFIG_FSFREEZE
     const char *fsfreeze_hook = NULL;
 #endif
-    const char *state_dir = QGA_STATEDIR_DEFAULT;
+    const char *state_dir;
 #ifdef _WIN32
     const char *service = NULL;
 #endif
@@ -762,6 +957,10 @@ int main(int argc, char **argv)
     GAState *s;
 
     module_call_init(MODULE_INIT_QAPI);
+
+    init_dfl_pathnames();
+    pid_filepath = dfl_pathnames.pidfile;
+    state_dir = dfl_pathnames.state_dir;
 
     while ((ch = getopt_long(argc, argv, sopt, lopt, &opt_ind)) != -1) {
         switch (ch) {
@@ -823,7 +1022,16 @@ int main(int argc, char **argv)
         case 's':
             service = optarg;
             if (strcmp(service, "install") == 0) {
-                return ga_install_service(path, log_filepath);
+                const char *fixed_state_dir;
+
+                /* If the user passed the "-t" option, we save that state dir
+                 * in the service. Otherwise we let the service fetch the state
+                 * dir from the environment when it starts.
+                 */
+                fixed_state_dir = (state_dir == dfl_pathnames.state_dir) ?
+                                  NULL :
+                                  state_dir;
+                return ga_install_service(path, log_filepath, fixed_state_dir);
             } else if (strcmp(service, "uninstall") == 0) {
                 return ga_uninstall_service();
             } else {
@@ -842,6 +1050,20 @@ int main(int argc, char **argv)
         }
     }
 
+#ifdef _WIN32
+    /* On win32 the state directory is application specific (be it the default
+     * or a user override). We got past the command line parsing; let's create
+     * the directory (with any intermediate directories). If we run into an
+     * error later on, we won't try to clean up the directory, it is considered
+     * persistent.
+     */
+    if (g_mkdir_with_parents(state_dir, S_IRWXU) == -1) {
+        g_critical("unable to create (an ancestor of) the state directory"
+                   " '%s': %s", state_dir, strerror(errno));
+        return EXIT_FAILURE;
+    }
+#endif
+
     s = g_malloc0(sizeof(GAState));
     s->log_level = log_level;
     s->log_file = stderr;
@@ -853,7 +1075,9 @@ int main(int argc, char **argv)
     ga_enable_logging(s);
     s->state_filepath_isfrozen = g_strdup_printf("%s/qga.state.isfrozen",
                                                  state_dir);
+    s->pstate_filepath = g_strdup_printf("%s/qga.state", state_dir);
     s->frozen = false;
+
 #ifndef _WIN32
     /* check if a previous instance of qemu-ga exited with filesystems' state
      * marked as frozen. this could be a stale value (a non-qemu-ga process
@@ -908,6 +1132,14 @@ int main(int argc, char **argv)
             }
             s->log_file = log_file;
         }
+    }
+
+    /* load persistent state from disk */
+    if (!read_persistent_state(&s->pstate,
+                               s->pstate_filepath,
+                               ga_is_frozen(s))) {
+        g_critical("failed to load persistent state");
+        goto out_bad;
     }
 
     if (blacklist) {

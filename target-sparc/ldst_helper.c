@@ -514,6 +514,7 @@ uint64_t helper_ld_asi(CPUSPARCState *env, target_ulong addr, int asi, int size,
 #endif
         break;
     case 3: /* MMU probe */
+    case 0x18: /* LEON3 MMU probe */
         {
             int mmulev;
 
@@ -528,6 +529,7 @@ uint64_t helper_ld_asi(CPUSPARCState *env, target_ulong addr, int asi, int size,
         }
         break;
     case 4: /* read MMU regs */
+    case 0x19: /* LEON3 read MMU regs */
         {
             int reg = (addr >> 8) & 0x1f;
 
@@ -603,6 +605,7 @@ uint64_t helper_ld_asi(CPUSPARCState *env, target_ulong addr, int asi, int size,
     case 0xf: /* D-cache data */
         break;
     case 0x20: /* MMU passthrough */
+    case 0x1c: /* LEON MMU passthrough */
         switch (size) {
         case 1:
             ret = ldub_phys(addr);
@@ -683,7 +686,8 @@ uint64_t helper_ld_asi(CPUSPARCState *env, target_ulong addr, int asi, int size,
         break;
     case 8: /* User code access, XXX */
     default:
-        cpu_unassigned_access(env, addr, 0, 0, asi, size);
+        cpu_unassigned_access(CPU(sparc_env_get_cpu(env)),
+                              addr, false, false, asi, size);
         ret = 0;
         break;
     }
@@ -844,6 +848,7 @@ void helper_st_asi(CPUSPARCState *env, target_ulong addr, uint64_t val, int asi,
 #endif
         break;
     case 3: /* MMU flush */
+    case 0x18: /* LEON3 MMU flush */
         {
             int mmulev;
 
@@ -868,6 +873,7 @@ void helper_st_asi(CPUSPARCState *env, target_ulong addr, uint64_t val, int asi,
         }
         break;
     case 4: /* write MMU regs */
+    case 0x19: /* LEON3 write MMU regs */
         {
             int reg = (addr >> 8) & 0x1f;
             uint32_t oldreg;
@@ -996,6 +1002,7 @@ void helper_st_asi(CPUSPARCState *env, target_ulong addr, uint64_t val, int asi,
         }
         break;
     case 0x20: /* MMU passthrough */
+    case 0x1c: /* LEON MMU passthrough */
         {
             switch (size) {
             case 1:
@@ -1082,7 +1089,8 @@ void helper_st_asi(CPUSPARCState *env, target_ulong addr, uint64_t val, int asi,
     case 8: /* User code access, XXX */
     case 9: /* Supervisor code access, XXX */
     default:
-        cpu_unassigned_access(env, addr, 1, 0, asi, size);
+        cpu_unassigned_access(CPU(sparc_env_get_cpu(env)),
+                              addr, true, false, asi, size);
         break;
     }
 #ifdef DEBUG_ASI
@@ -1588,7 +1596,8 @@ uint64_t helper_ld_asi(CPUSPARCState *env, target_ulong addr, int asi, int size,
     case 0x5f: /* D-MMU demap, WO */
     case 0x77: /* Interrupt vector, WO */
     default:
-        cpu_unassigned_access(env, addr, 0, 0, 1, size);
+        cpu_unassigned_access(CPU(sparc_env_get_cpu(env)),
+                              addr, false, false, 1, size);
         ret = 0;
         break;
     }
@@ -1850,7 +1859,7 @@ void helper_st_asi(CPUSPARCState *env, target_ulong addr, target_ulong val,
                 DPRINTF_MMU("LSU change: 0x%" PRIx64 " -> 0x%" PRIx64 "\n",
                             oldreg, env->lsu);
 #ifdef DEBUG_MMU
-                dump_mmu(stdout, fprintf, env1);
+                dump_mmu(stdout, fprintf, env);
 #endif
                 tlb_flush(env, 1);
             }
@@ -2021,7 +2030,8 @@ void helper_st_asi(CPUSPARCState *env, target_ulong addr, target_ulong val,
     case 0x8a: /* Primary no-fault LE, RO */
     case 0x8b: /* Secondary no-fault LE, RO */
     default:
-        cpu_unassigned_access(env, addr, 1, 0, 1, size);
+        cpu_unassigned_access(CPU(sparc_env_get_cpu(env)),
+                              addr, true, false, 1, size);
         return;
     }
 }
@@ -2316,9 +2326,12 @@ void helper_stqf(CPUSPARCState *env, target_ulong addr, int mem_idx)
 
 #if !defined(CONFIG_USER_ONLY)
 #ifndef TARGET_SPARC64
-void cpu_unassigned_access(CPUSPARCState *env, hwaddr addr,
-                           int is_write, int is_exec, int is_asi, int size)
+void sparc_cpu_unassigned_access(CPUState *cs, hwaddr addr,
+                                 bool is_write, bool is_exec, int is_asi,
+                                 unsigned size)
 {
+    SPARCCPU *cpu = SPARC_CPU(cs);
+    CPUSPARCState *env = &cpu->env;
     int fault_type;
 
 #ifdef DEBUG_UNASSIGNED
@@ -2376,9 +2389,13 @@ void cpu_unassigned_access(CPUSPARCState *env, hwaddr addr,
     }
 }
 #else
-void cpu_unassigned_access(CPUSPARCState *env, hwaddr addr,
-                           int is_write, int is_exec, int is_asi, int size)
+void sparc_cpu_unassigned_access(CPUState *cs, hwaddr addr,
+                                 bool is_write, bool is_exec, int is_asi,
+                                 unsigned size)
 {
+    SPARCCPU *cpu = SPARC_CPU(cs);
+    CPUSPARCState *env = &cpu->env;
+
 #ifdef DEBUG_UNASSIGNED
     printf("Unassigned mem access to " TARGET_FMT_plx " from " TARGET_FMT_lx
            "\n", addr, env->pc);

@@ -364,7 +364,7 @@ static int vdi_probe(const uint8_t *buf, int buf_size, const char *filename)
     return result;
 }
 
-static int vdi_open(BlockDriverState *bs, int flags)
+static int vdi_open(BlockDriverState *bs, QDict *options, int flags)
 {
     BDRVVdiState *s = bs->opaque;
     VdiHeader header;
@@ -779,6 +779,7 @@ static BlockDriver bdrv_vdi = {
     .bdrv_close = vdi_close,
     .bdrv_reopen_prepare = vdi_reopen_prepare,
     .bdrv_create = vdi_create,
+    .bdrv_has_zero_init = bdrv_has_zero_init_1,
     .bdrv_co_is_allocated = vdi_co_is_allocated,
     .bdrv_make_empty = vdi_make_empty,
 

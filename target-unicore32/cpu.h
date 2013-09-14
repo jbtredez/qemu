@@ -142,27 +142,9 @@ static inline int cpu_mmu_index(CPUUniCore32State *env)
     return (env->uncached_asr & ASR_M) == ASR_MODE_USER ? 1 : 0;
 }
 
-static inline void cpu_clone_regs(CPUUniCore32State *env, target_ulong newsp)
-{
-    if (newsp) {
-        env->regs[29] = newsp;
-    }
-    env->regs[0] = 0;
-}
-
-static inline void cpu_set_tls(CPUUniCore32State *env, target_ulong newtls)
-{
-    env->regs[16] = newtls;
-}
-
 #include "exec/cpu-all.h"
 #include "cpu-qom.h"
 #include "exec/exec-all.h"
-
-static inline void cpu_pc_from_tb(CPUUniCore32State *env, TranslationBlock *tb)
-{
-    env->regs[31] = tb->pc;
-}
 
 static inline void cpu_get_tb_cpu_state(CPUUniCore32State *env, target_ulong *pc,
                                         target_ulong *cs_base, int *flags)
@@ -176,14 +158,11 @@ static inline void cpu_get_tb_cpu_state(CPUUniCore32State *env, target_ulong *pc
 }
 
 void uc32_translate_init(void);
-void do_interrupt(CPUUniCore32State *);
 void switch_mode(CPUUniCore32State *, int);
 
 static inline bool cpu_has_work(CPUState *cpu)
 {
-    CPUUniCore32State *env = &UNICORE32_CPU(cpu)->env;
-
-    return env->interrupt_request &
+    return cpu->interrupt_request &
         (CPU_INTERRUPT_HARD | CPU_INTERRUPT_EXITTB);
 }
 

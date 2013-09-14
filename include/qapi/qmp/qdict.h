@@ -64,4 +64,7 @@ int64_t qdict_get_try_int(const QDict *qdict, const char *key,
 int qdict_get_try_bool(const QDict *qdict, const char *key, int def_value);
 const char *qdict_get_try_str(const QDict *qdict, const char *key);
 
+QDict *qdict_clone_shallow(const QDict *src);
+void qdict_flatten(QDict *qdict);
+
 #endif /* QDICT_H */

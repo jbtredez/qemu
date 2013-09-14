@@ -272,9 +272,9 @@ struct CPUMBState {
 
 #include "cpu-qom.h"
 
+void mb_tcg_init(void);
 MicroBlazeCPU *cpu_mb_init(const char *cpu_model);
 int cpu_mb_exec(CPUMBState *s);
-void do_interrupt(CPUMBState *env);
 /* you can call this signal handler from your SIGBUS and SIGSEGV
    signal handlers to inform the virtual CPU of exceptions. non zero
    is returned if the signal was handled by the virtual CPU.  */
@@ -331,20 +331,6 @@ int cpu_mb_handle_mmu_fault(CPUMBState *env, target_ulong address, int rw,
                             int mmu_idx);
 #define cpu_handle_mmu_fault cpu_mb_handle_mmu_fault
 
-#if defined(CONFIG_USER_ONLY)
-static inline void cpu_clone_regs(CPUMBState *env, target_ulong newsp)
-{
-    if (newsp)
-        env->regs[R_SP] = newsp;
-    env->regs[3] = 0;
-}
-#endif
-
-static inline void cpu_set_tls(CPUMBState *env, target_ulong newtls)
-{
-    env->regs[21] = newtls;
-}
-
 static inline int cpu_interrupts_enabled(CPUMBState *env)
 {
     return env->sregs[SR_MSR] & MSR_IE;
@@ -367,22 +353,16 @@ static inline void cpu_get_tb_cpu_state(CPUMBState *env, target_ulong *pc,
 }
 
 #if !defined(CONFIG_USER_ONLY)
-void cpu_unassigned_access(CPUMBState *env1, hwaddr addr,
-                           int is_write, int is_exec, int is_asi, int size);
+void mb_cpu_unassigned_access(CPUState *cpu, hwaddr addr,
+                              bool is_write, bool is_exec, int is_asi,
+                              unsigned size);
 #endif
 
 static inline bool cpu_has_work(CPUState *cpu)
 {
-    CPUMBState *env = &MICROBLAZE_CPU(cpu)->env;
-
-    return env->interrupt_request & (CPU_INTERRUPT_HARD | CPU_INTERRUPT_NMI);
+    return cpu->interrupt_request & (CPU_INTERRUPT_HARD | CPU_INTERRUPT_NMI);
 }
 
 #include "exec/exec-all.h"
-
-static inline void cpu_pc_from_tb(CPUMBState *env, TranslationBlock *tb)
-{
-    env->sregs[SR_PC] = tb->pc;
-}
 
 #endif

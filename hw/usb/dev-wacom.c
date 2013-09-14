@@ -138,7 +138,7 @@ static void usb_mouse_event(void *opaque,
     s->dz += dz1;
     s->buttons_state = buttons_state;
     s->changed = 1;
-    usb_wakeup(s->intr);
+    usb_wakeup(s->intr, 0);
 }
 
 static void usb_wacom_event(void *opaque,
@@ -152,7 +152,7 @@ static void usb_wacom_event(void *opaque,
     s->dz += dz;
     s->buttons_state = buttons_state;
     s->changed = 1;
-    usb_wakeup(s->intr);
+    usb_wakeup(s->intr, 0);
 }
 
 static inline int int_clamp(int val, int vmin, int vmax)
@@ -362,6 +362,7 @@ static void usb_wacom_class_init(ObjectClass *klass, void *data)
     uc->handle_control = usb_wacom_handle_control;
     uc->handle_data    = usb_wacom_handle_data;
     uc->handle_destroy = usb_wacom_handle_destroy;
+    set_bit(DEVICE_CATEGORY_INPUT, dc->categories);
     dc->desc = "QEMU PenPartner Tablet";
     dc->vmsd = &vmstate_usb_wacom;
 }

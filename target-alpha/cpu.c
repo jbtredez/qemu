@@ -21,14 +21,24 @@
 
 #include "cpu.h"
 #include "qemu-common.h"
-#include "qapi/error.h"
+#include "migration/vmstate.h"
 
 
-static void alpha_cpu_realize(Object *obj, Error **errp)
+static void alpha_cpu_set_pc(CPUState *cs, vaddr value)
 {
-    AlphaCPU *cpu = ALPHA_CPU(obj);
+    AlphaCPU *cpu = ALPHA_CPU(cs);
 
-    qemu_init_vcpu(&cpu->env);
+    cpu->env.pc = value;
+}
+
+static void alpha_cpu_realizefn(DeviceState *dev, Error **errp)
+{
+    CPUState *cs = CPU(dev);
+    AlphaCPUClass *acc = ALPHA_CPU_GET_CLASS(dev);
+
+    qemu_init_vcpu(cs);
+
+    acc->parent_realize(dev, errp);
 }
 
 /* Sort alphabetically by type name. */
@@ -134,7 +144,8 @@ AlphaCPU *cpu_alpha_init(const char *cpu_model)
 
     env->cpu_model_str = cpu_model;
 
-    alpha_cpu_realize(OBJECT(cpu), NULL);
+    object_property_set_bool(OBJECT(cpu), true, "realized", NULL);
+
     return cpu;
 }
 
@@ -230,9 +241,11 @@ static const TypeInfo ev68_cpu_type_info = {
 
 static void alpha_cpu_initfn(Object *obj)
 {
+    CPUState *cs = CPU(obj);
     AlphaCPU *cpu = ALPHA_CPU(obj);
     CPUAlphaState *env = &cpu->env;
 
+    cs->env_ptr = env;
     cpu_exec_init(env);
     tlb_flush(env, 1);
 
@@ -250,9 +263,25 @@ static void alpha_cpu_initfn(Object *obj)
 
 static void alpha_cpu_class_init(ObjectClass *oc, void *data)
 {
+    DeviceClass *dc = DEVICE_CLASS(oc);
     CPUClass *cc = CPU_CLASS(oc);
+    AlphaCPUClass *acc = ALPHA_CPU_CLASS(oc);
+
+    acc->parent_realize = dc->realize;
+    dc->realize = alpha_cpu_realizefn;
 
     cc->class_by_name = alpha_cpu_class_by_name;
+    cc->do_interrupt = alpha_cpu_do_interrupt;
+    cc->dump_state = alpha_cpu_dump_state;
+    cc->set_pc = alpha_cpu_set_pc;
+    cc->gdb_read_register = alpha_cpu_gdb_read_register;
+    cc->gdb_write_register = alpha_cpu_gdb_write_register;
+#ifndef CONFIG_USER_ONLY
+    cc->do_unassigned_access = alpha_cpu_unassigned_access;
+    cc->get_phys_page_debug = alpha_cpu_get_phys_page_debug;
+    dc->vmsd = &vmstate_alpha_cpu;
+#endif
+    cc->gdb_num_core_regs = 67;
 }
 
 static const TypeInfo alpha_cpu_type_info = {

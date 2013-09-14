@@ -24,81 +24,6 @@
 #define BITS_TO_LONGS(nr)	DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
 
 /**
- * bitops_ctzl - count trailing zeroes in word.
- * @word: The word to search
- *
- * Returns -1 if no bit exists.  Note that compared to the C library
- * routine ffsl, this one returns one less.
- */
-static unsigned long bitops_ctzl(unsigned long word)
-{
-#if QEMU_GNUC_PREREQ(3, 4)
-    return __builtin_ffsl(word) - 1;
-#else
-    if (!word) {
-        return -1;
-    }
-
-    if (sizeof(long) == 4) {
-        return ctz32(word);
-    } else if (sizeof(long) == 8) {
-        return ctz64(word);
-    } else {
-        abort();
-    }
-#endif
-}
-
-/**
- * bitops_fls - find last (most-significant) set bit in a long word
- * @word: the word to search
- *
- * Undefined if no set bit exists, so code should check against 0 first.
- */
-static inline unsigned long bitops_flsl(unsigned long word)
-{
-	int num = BITS_PER_LONG - 1;
-
-#if LONG_MAX > 0x7FFFFFFF
-	if (!(word & (~0ul << 32))) {
-		num -= 32;
-		word <<= 32;
-	}
-#endif
-	if (!(word & (~0ul << (BITS_PER_LONG-16)))) {
-		num -= 16;
-		word <<= 16;
-	}
-	if (!(word & (~0ul << (BITS_PER_LONG-8)))) {
-		num -= 8;
-		word <<= 8;
-	}
-	if (!(word & (~0ul << (BITS_PER_LONG-4)))) {
-		num -= 4;
-		word <<= 4;
-	}
-	if (!(word & (~0ul << (BITS_PER_LONG-2)))) {
-		num -= 2;
-
-		word <<= 2;
-	}
-	if (!(word & (~0ul << (BITS_PER_LONG-1))))
-		num -= 1;
-	return num;
-}
-
-/**
- * cto - count trailing ones in word.
- * @word: The word to search
- *
- * Returns -1 if all bit are set.
- */
-static inline unsigned long bitops_ctol(unsigned long word)
-{
-    return bitops_ctzl(~word);
-}
-
-/**
  * set_bit - Set a bit in memory
  * @nr: the bit to set
  * @addr: the address to start counting from
@@ -294,6 +219,56 @@ static inline uint64_t extract64(uint64_t value, int start, int length)
 {
     assert(start >= 0 && length > 0 && length <= 64 - start);
     return (value >> start) & (~0ULL >> (64 - length));
+}
+
+/**
+ * sextract32:
+ * @value: the value to extract the bit field from
+ * @start: the lowest bit in the bit field (numbered from 0)
+ * @length: the length of the bit field
+ *
+ * Extract from the 32 bit input @value the bit field specified by the
+ * @start and @length parameters, and return it, sign extended to
+ * an int32_t (ie with the most significant bit of the field propagated
+ * to all the upper bits of the return value). The bit field must lie
+ * entirely within the 32 bit word. It is valid to request that
+ * all 32 bits are returned (ie @length 32 and @start 0).
+ *
+ * Returns: the sign extended value of the bit field extracted from the
+ * input value.
+ */
+static inline int32_t sextract32(uint32_t value, int start, int length)
+{
+    assert(start >= 0 && length > 0 && length <= 32 - start);
+    /* Note that this implementation relies on right shift of signed
+     * integers being an arithmetic shift.
+     */
+    return ((int32_t)(value << (32 - length - start))) >> (32 - length);
+}
+
+/**
+ * sextract64:
+ * @value: the value to extract the bit field from
+ * @start: the lowest bit in the bit field (numbered from 0)
+ * @length: the length of the bit field
+ *
+ * Extract from the 64 bit input @value the bit field specified by the
+ * @start and @length parameters, and return it, sign extended to
+ * an int64_t (ie with the most significant bit of the field propagated
+ * to all the upper bits of the return value). The bit field must lie
+ * entirely within the 64 bit word. It is valid to request that
+ * all 64 bits are returned (ie @length 64 and @start 0).
+ *
+ * Returns: the sign extended value of the bit field extracted from the
+ * input value.
+ */
+static inline uint64_t sextract64(uint64_t value, int start, int length)
+{
+    assert(start >= 0 && length > 0 && length <= 64 - start);
+    /* Note that this implementation relies on right shift of signed
+     * integers being an arithmetic shift.
+     */
+    return ((int64_t)(value << (64 - length - start))) >> (64 - length);
 }
 
 /**
