@@ -109,3 +109,5 @@ cscope.*
 tags
 TAGS
 *~
+roms/seabios/config.mak
+roms/vgabios/config.mak
