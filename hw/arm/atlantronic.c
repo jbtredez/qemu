@@ -118,6 +118,8 @@ static void atlantronic_foo_init(QEMUMachineInitArgs *args)
 	qdev_connect_gpio_out(usart3, 0, pic[USART3_IRQn]);  // usart3 -> it hw
 	qdev_connect_gpio_out(usart3, 1, qdev_get_gpio_in(dma1_chan3, 0));  // usart3 -> dma1_chan3 (rx)
 
+	/*DeviceState* can1 = */sysbus_create_simple("atlantronic-can", CAN1_BASE, NULL);
+	// TODO irq can
 
 	// usb
 	DeviceState* usb = sysbus_create_simple("atlantronic-usb", USB_OTG_FS_BASE_ADDR, NULL);

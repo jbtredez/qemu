@@ -4,6 +4,7 @@ obj-y += omap_sx1.o palm.o realview.o spitz.o stellaris.o
 obj-y += tosa.o versatilepb.o vexpress.o xilinx_zynq.o z2.o
 obj-y += atlantronic.o atlantronic_gpio.o atlantronic_rcc.o atlantronic_usb.o atlantronic_tim.o atlantronic_model.o
 obj-y += atlantronic_adc.o atlantronic_dma.o atlantronic_dma_chan.o atlantronic_usart.o atlantronic_hokuyo.o atlantronic_tools.o
+obj-y += atlantronic_can.o
 
 obj-y += armv7m.o exynos4210.o pxa2xx.o pxa2xx_gpio.o pxa2xx_pic.o
 obj-y += omap1.o omap2.o strongarm.o
