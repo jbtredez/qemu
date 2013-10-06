@@ -1,14 +1,7 @@
 #include "hw/sysbus.h"
 #include "hw/boards.h"
 #include "hw/arm/arm.h"
-
-#define LINUX
-#define STM32F10X_CL
-#undef FALSE
-#undef TRUE
-#undef bool
-#include "kernel/cpu/cpu.h"
-#undef LINUX
+#include "atlantronic_cpu.h"
 
 #define IRQ_NUM           5
 
@@ -124,66 +117,27 @@ static uint64_t atlantronic_tim_read(void *opaque, hwaddr offset, unsigned size)
 
 	switch(offset)
 	{
-		case offsetof(TIM_TypeDef, CR1):
-			res = s->tim.CR1;
-			break;
-		case offsetof(TIM_TypeDef, CR2):
-			res = s->tim.CR2;
-			break;
-		case offsetof(TIM_TypeDef, SMCR):
-			res = s->tim.SMCR;
-			break;
-		case offsetof(TIM_TypeDef, DIER):
-			res = s->tim.DIER;
-			break;
-		case offsetof(TIM_TypeDef, SR):
-			res = s->tim.SR;
-			break;
-		case offsetof(TIM_TypeDef, EGR):
-			res = s->tim.EGR;
-			break;
-		case offsetof(TIM_TypeDef, CCMR1):
-			res = s->tim.CCMR1;
-			break;
-		case offsetof(TIM_TypeDef, CCMR2):
-			res = s->tim.CCMR2;
-			break;
-		case offsetof(TIM_TypeDef, CCER):
-			res = s->tim.CCER;
-			break;
-		case offsetof(TIM_TypeDef, CNT):
-			res = s->tim.CNT;
-			break;
-		case offsetof(TIM_TypeDef, PSC):
-			res = s->tim.PSC;
-			break;
-		case offsetof(TIM_TypeDef, ARR):
-			res = s->tim.ARR;
-			break;
-		case offsetof(TIM_TypeDef, RCR):
-			res = s->tim.RCR;
-			break;
-		case offsetof(TIM_TypeDef, CCR1):
-			res = s->tim.CCR1;
-			break;
-		case offsetof(TIM_TypeDef, CCR2):
-			res = s->tim.CCR2;
-			break;
-		case offsetof(TIM_TypeDef, CCR3):
-			res = s->tim.CCR3;
-			break;
-		case offsetof(TIM_TypeDef, CCR4):
-			res = s->tim.CCR4;
-			break;
-		case offsetof(TIM_TypeDef, BDTR):
-			res = s->tim.BDTR;
-			break;
-		case offsetof(TIM_TypeDef, DCR):
-			res = s->tim.DCR;
-			break;
-		case offsetof(TIM_TypeDef, DMAR):
-			res = s->tim.DMAR;
-			break;
+		R_ACCESS(TIM_TypeDef, s->tim, CR1, res);
+		R_ACCESS(TIM_TypeDef, s->tim, CR2, res);
+		R_ACCESS(TIM_TypeDef, s->tim, SMCR, res);
+		R_ACCESS(TIM_TypeDef, s->tim, DIER, res);
+		R_ACCESS(TIM_TypeDef, s->tim, SR, res);
+		R_ACCESS(TIM_TypeDef, s->tim, EGR, res);
+		R_ACCESS(TIM_TypeDef, s->tim, CCMR1, res);
+		R_ACCESS(TIM_TypeDef, s->tim, CCMR2, res);
+		R_ACCESS(TIM_TypeDef, s->tim, CCER, res);
+		R_ACCESS(TIM_TypeDef, s->tim, CNT, res);
+		R_ACCESS(TIM_TypeDef, s->tim, PSC, res);
+		R_ACCESS(TIM_TypeDef, s->tim, ARR, res);
+		R_ACCESS(TIM_TypeDef, s->tim, RCR, res);
+		R_ACCESS(TIM_TypeDef, s->tim, CCR1, res);
+		R_ACCESS(TIM_TypeDef, s->tim, CCR2, res);
+		R_ACCESS(TIM_TypeDef, s->tim, CCR3, res);
+		R_ACCESS(TIM_TypeDef, s->tim, CCR4, res);
+		R_ACCESS(TIM_TypeDef, s->tim, BDTR, res);
+		R_ACCESS(TIM_TypeDef, s->tim, DCR, res);
+		R_ACCESS(TIM_TypeDef, s->tim, DMAR, res);
+		R_ACCESS(TIM_TypeDef, s->tim, OR, res);
 		default:
 			printf("Error : TIM forbiden read acces offset %lx\n", offset);
 			break;
@@ -214,6 +168,7 @@ static void atlantronic_tim_reset(TIM_TypeDef* tim)
 	tim->BDTR  = 0x00;
 	tim->DCR   = 0x00;
 	tim->DMAR  = 0x00;
+	tim->OR    = 0x00;
 }
 
 static const MemoryRegionOps atlantronic_tim_ops =
