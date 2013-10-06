@@ -5,15 +5,9 @@
 
 #include "atlantronic_model.h"
 #include "atlantronic_hokuyo.h"
+#include "atlantronic_cpu.h"
 
-#define LINUX
-#define STM32F10X_CL
-#undef FALSE
-#undef TRUE
-#undef bool
-#include "kernel/cpu/cpu.h"
-#undef LINUX
-#include "kernel/driver/usb/stm32f1xx/otgd_fs_regs.h"
+#define USB_OTG_FS_BASE_ADDR      0x50000000
 
 static void atlantronic_foo_init(QEMUMachineInitArgs *args)
 {
@@ -22,9 +16,9 @@ static void atlantronic_foo_init(QEMUMachineInitArgs *args)
 
 	MemoryRegion *address_space_mem = get_system_memory();
 
-	const int flash_size = 256;
-	const int sram_size = 64;
-	qemu_irq* pic = armv7m_init(address_space_mem, flash_size, sram_size, args->kernel_filename, "cortex-m3");
+	const int flash_size = 1024;
+	const int sram_size = 192;
+	qemu_irq* pic = armv7m_init(address_space_mem, flash_size, sram_size, args->kernel_filename, "cortex-m4");
 
 	// rcc
 	sysbus_create_simple("atlantronic-rcc", RCC_BASE, NULL);
@@ -36,10 +30,11 @@ static void atlantronic_foo_init(QEMUMachineInitArgs *args)
 	sysbus_create_simple("atlantronic-gpio", GPIOD_BASE, NULL);
 	DeviceState* gpioe = sysbus_create_simple("atlantronic-gpio", GPIOE_BASE, NULL);
 	sysbus_create_simple("atlantronic-gpio", GPIOF_BASE, NULL);
-
+#if 0
 	// mise a 1 des pin 2 et 3 de gpioa (id de foo)
 	qemu_set_irq(qdev_get_gpio_in(gpioa, 2), 1);
 	qemu_set_irq(qdev_get_gpio_in(gpioa, 3), 1);
+#endif
 
 	// tim
 	DeviceState* tim1 = sysbus_create_simple("atlantronic-tim", TIM1_BASE, NULL);
@@ -51,6 +46,7 @@ static void atlantronic_foo_init(QEMUMachineInitArgs *args)
 	sysbus_create_simple("atlantronic-tim", TIM7_BASE, NULL);
 	sysbus_create_simple("atlantronic-tim", TIM8_BASE, NULL);
 
+#if 0
 	// dma
 	DeviceState* dma1 = sysbus_create_simple("atlantronic-dma", DMA1_BASE, NULL);
 	DeviceState* dma1_chan1 = sysbus_create_simple("atlantronic-dma-chan", DMA1_Channel1_BASE, NULL);
@@ -122,8 +118,8 @@ static void atlantronic_foo_init(QEMUMachineInitArgs *args)
 	// TODO irq can
 
 	// usb
-	DeviceState* usb = sysbus_create_simple("atlantronic-usb", USB_OTG_FS_BASE_ADDR, NULL);
-	sysbus_connect_irq(SYS_BUS_DEVICE(usb), 0, pic[OTG_FS_IRQn]);
+	//DeviceState* usb = sysbus_create_simple("atlantronic-usb", USB_OTG_FS_BASE_ADDR, NULL);
+	//sysbus_connect_irq(SYS_BUS_DEVICE(usb), 0, pic[OTG_FS_IRQn]);
 
 	// modele
 	DeviceState* model = sysbus_create_simple("atlantronic-model", 0, NULL);
@@ -152,6 +148,7 @@ static void atlantronic_foo_init(QEMUMachineInitArgs *args)
 	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_Y, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_Y));
 	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_ALPHA, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_ALPHA));
 	qdev_connect_gpio_out(hokuyo1, 0, qdev_get_gpio_in(usart3, 0));
+#endif
 }
 
 static QEMUMachine atlantronic_foo =

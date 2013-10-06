@@ -3,14 +3,7 @@
 #include "hw/arm/arm.h"
 #include "qemu/thread.h"
 #include "sysemu/char.h"
-
-#define LINUX
-#define STM32F10X_CL
-#undef FALSE
-#undef TRUE
-#undef bool
-#include "kernel/cpu/cpu.h"
-#undef LINUX
+#include "atlantronic_cpu.h"
 #include "kernel/driver/usb/stm32f1xx/otgd_fs_regs.h"
 
 #define EVENT_DATA_SIZE             128

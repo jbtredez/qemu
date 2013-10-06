@@ -1,14 +1,7 @@
 #include "hw/sysbus.h"
 #include "hw/boards.h"
 #include "hw/arm/arm.h"
-
-#define LINUX
-#define STM32F10X_CL
-#undef FALSE
-#undef TRUE
-#undef bool
-#include "kernel/cpu/cpu.h"
-#undef LINUX
+#include "atlantronic_cpu.h"
 
 struct atlantronic_rcc_state
 {
@@ -56,26 +49,6 @@ static void atlantronic_rcc_write_CR(RCC_TypeDef* rcc, uint32_t val)
 	{
 		rcc->CR &= ~RCC_CR_PLLRDY;
 	}
-
-	if(rcc->CR & RCC_CR_PLL2ON)
-	{
-		// PLL2 prête
-		rcc->CR |= RCC_CR_PLL2RDY;
-	}
-	else
-	{
-		rcc->CR &= ~RCC_CR_PLL2RDY;
-	}
-
-	if(rcc->CR & RCC_CR_PLL3ON)
-	{
-		// PLL3 prête
-		rcc->CR |= RCC_CR_PLL3RDY;
-	}
-	else
-	{
-		rcc->CR &= ~RCC_CR_PLL3RDY;
-	}
 }
 
 static void atlantronic_rcc_write(void *opaque, hwaddr offset, uint64_t val, unsigned size)
@@ -87,49 +60,36 @@ static void atlantronic_rcc_write(void *opaque, hwaddr offset, uint64_t val, uns
 		case offsetof(RCC_TypeDef, CR):
 			atlantronic_rcc_write_CR(&s->rcc, val);
 			break;
+		W_ACCESS(RCC_TypeDef, s->rcc, PLLCFGR, val);
 		case offsetof(RCC_TypeDef, CFGR):
 			s->rcc.CFGR = val;
 			if(val & RCC_CFGR_SW_PLL)
 			{
 				// PLL utilisée pour SYSCLK
 				s->rcc.CFGR &= ~RCC_CFGR_SWS;
-				s->rcc.CFGR |= RCC_CFGR_SWS_1;
+				s->rcc.CFGR |= RCC_CFGR_SWS_PLL;
 			}
 			break;
-		case offsetof(RCC_TypeDef, CIR):
-			s->rcc.CIR = val;
-			break;
-		case offsetof(RCC_TypeDef, APB2RSTR):
-			s->rcc.APB2RSTR = val;
-			break;
-		case offsetof(RCC_TypeDef, APB1RSTR):
-			s->rcc.APB1RSTR = val;
-			break;
-		case offsetof(RCC_TypeDef, AHBENR):
-			s->rcc.AHBENR = val;
-			break;
-		case offsetof(RCC_TypeDef, APB1ENR):
-			s->rcc.APB1ENR = val;
-			break;
-		case offsetof(RCC_TypeDef, APB2ENR):
-			s->rcc.APB2ENR = val;
-			break;
-		case offsetof(RCC_TypeDef, BDCR):
-			s->rcc.BDCR = val;
-			if(val & RCC_BDCR_LSEON)
-			{
-				printf("Error : pas de LSE\n");
-			}
-			break;
-		case offsetof(RCC_TypeDef, CSR):
-			s->rcc.CSR = val;
-			break;
-		case offsetof(RCC_TypeDef, AHBRSTR):
-			s->rcc.AHBRSTR = val;
-			break;
-		case offsetof(RCC_TypeDef, CFGR2):
-			s->rcc.CFGR2 = val;
-			break;
+		W_ACCESS(RCC_TypeDef, s->rcc, CIR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, AHB1RSTR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, AHB2RSTR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, AHB3RSTR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, APB1RSTR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, APB2RSTR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, AHB1ENR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, AHB2ENR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, AHB3ENR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, APB1ENR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, APB2ENR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, AHB1LPENR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, AHB2LPENR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, AHB3LPENR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, APB1LPENR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, APB2LPENR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, BDCR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, CSR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, SSCGR, val);
+		W_ACCESS(RCC_TypeDef, s->rcc, PLLI2SCFGR, val);
 		default:
 			printf("Error : RCC forbiden write acces offset %lx, val %lx\n", offset, val);
 			break;
@@ -143,42 +103,29 @@ static uint64_t atlantronic_rcc_read(void *opaque, hwaddr offset, unsigned size)
 
 	switch(offset)
 	{
-		case offsetof(RCC_TypeDef, CR):
-			res = s->rcc.CR & (uint32_t)0xFF0FFFFB;
-			break;
-		case offsetof(RCC_TypeDef, CFGR):
-			res = s->rcc.CFGR;
-			break; 
-		case offsetof(RCC_TypeDef, CIR):
-			res = s->rcc.CIR;
-			break;
-		case offsetof(RCC_TypeDef, APB2RSTR):
-			res = s->rcc.APB2RSTR;
-			break;
-		case offsetof(RCC_TypeDef, APB1RSTR):
-			res = s->rcc.APB1RSTR;
-			break;
-		case offsetof(RCC_TypeDef, AHBENR):
-			res = s->rcc.AHBENR;
-			break;
-		case offsetof(RCC_TypeDef, APB1ENR):
-			res = s->rcc.APB1ENR;
-			break;
-		case offsetof(RCC_TypeDef, APB2ENR):
-			res = s->rcc.APB2ENR;
-			break;
-		case offsetof(RCC_TypeDef, BDCR):
-			res = s->rcc.BDCR;
-			break;
-		case offsetof(RCC_TypeDef, CSR):
-			res = s->rcc.CSR;
-			break;
-		case offsetof(RCC_TypeDef, AHBRSTR):
-			res = s->rcc.AHBRSTR;
-			break;
-		case offsetof(RCC_TypeDef, CFGR2):
-			res = s->rcc.CFGR2;
-			break;
+		R_ACCESS(RCC_TypeDef, s->rcc, CR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, PLLCFGR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, CFGR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, CIR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, AHB1RSTR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, AHB2RSTR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, AHB3RSTR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, APB1RSTR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, APB2RSTR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, AHB1ENR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, AHB2ENR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, AHB3ENR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, APB1ENR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, APB2ENR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, AHB1LPENR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, AHB2LPENR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, AHB3LPENR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, APB1LPENR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, APB2LPENR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, BDCR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, CSR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, SSCGR, res);
+		R_ACCESS(RCC_TypeDef, s->rcc, PLLI2SCFGR, res);
 		default:
 			printf("Error : RCC forbiden read acces offset %lx\n", offset);
 			break;
@@ -190,17 +137,28 @@ static uint64_t atlantronic_rcc_read(void *opaque, hwaddr offset, unsigned size)
 static void atlantronic_rcc_reset(RCC_TypeDef* rcc)
 {
 	rcc->CR = 0x00000083;
+	rcc->PLLCFGR = 0x24003010;
 	rcc->CFGR = 0x00;
 	rcc->CIR = 0x00;
-	rcc->APB2RSTR = 0x00;
+	rcc->AHB1RSTR = 0x00;
+	rcc->AHB2RSTR = 0x00;
+	rcc->AHB3RSTR = 0x00;
 	rcc->APB1RSTR = 0x00;
-	rcc->AHBENR = 0x14;
-	rcc->APB2ENR = 0x00;
+	rcc->APB2RSTR = 0x00;
+	rcc->AHB1ENR = 0x00100000;
+	rcc->AHB2ENR = 0x00;
+	rcc->AHB3ENR = 0x00;
 	rcc->APB1ENR = 0x00;
+	rcc->APB2ENR = 0x00;
+	rcc->AHB1LPENR = 0x7E6791FF;
+	rcc->AHB2LPENR = 0x000000F1;
+	rcc->AHB3LPENR = 0x00000001;
+	rcc->APB1LPENR = 0x36FEC9FF;
+	rcc->APB2LPENR = 0x00075F33;
 	rcc->BDCR = 0x00;
-	rcc->CSR = 0x0C000000;
-	rcc->AHBRSTR = 0x00;
-	rcc->CFGR2 = 0x00;
+	rcc->CSR = 0x0E000000;
+	rcc->SSCGR = 0x00;
+	rcc->PLLI2SCFGR = 0x20003000;
 }
 
 static const MemoryRegionOps atlantronic_rcc_ops =
