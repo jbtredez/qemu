@@ -1,16 +1,17 @@
 #include "hw/sysbus.h"
 #include "hw/boards.h"
 #include "hw/arm/arm.h"
-
-#define LINUX
-#define STM32F10X_CL
-#undef FALSE
-#undef TRUE
-#undef bool
-#include "kernel/cpu/cpu.h"
-#undef LINUX
+#include "atlantronic_cpu.h"
 
 #define PIN_NUM        16
+
+enum gpio_mode
+{
+	GPIO_MODE_IN   = 0x00,
+	GPIO_MODE_OUT  = 0x01,
+	GPIO_MODE_AF   = 0x02,
+	GPIO_MODE_AN   = 0x03
+};
 
 struct atlantronic_gpio_state
 {
@@ -28,49 +29,38 @@ static void atlantronic_gpio_write(void *opaque, hwaddr offset, uint64_t val, un
 
 	switch(offset)
 	{
-		case offsetof(GPIO_TypeDef, CRL):
-			s->gpio.CRL = val;
-			break;
-		case offsetof(GPIO_TypeDef, CRH):
-			s->gpio.CRH = val;
-			break;
+		W_ACCESS(GPIO_TypeDef, s->gpio, MODER, val);
+		W_ACCESS(GPIO_TypeDef, s->gpio, OTYPER, val);
+		W_ACCESS(GPIO_TypeDef, s->gpio, OSPEEDR, val);
+		W_ACCESS(GPIO_TypeDef, s->gpio, PUPDR, val);
 		case offsetof(GPIO_TypeDef, IDR):
 			printf("Error : GPIO forbiden write acces IDR (offset %lx), val %lx\n", offset, val);
 			break;
 		case offsetof(GPIO_TypeDef, ODR):
 			val &= 0xFFFF;
-			diff = s->gpio.ODR ^ val;  
+			diff = s->gpio.ODR ^ val;
 			s->gpio.ODR = val;
 			for( i = 0; i < PIN_NUM; i++)
 			{
-				int mode = 0;
+				int mode = (s->gpio.MODER >> (2 * i)) & 0x03;
 
-				if( i < 8)
-				{
-					// pin 0 a 7
-					mode = (s->gpio.CRL >> (4 * i)) & 0x03;
-				}
-				else
-				{
-					// pin 8 a 15
-					mode = (s->gpio.CRH >> (4 * (i - 8))) & 0x03;
-				}
-
-				if( mode != 0 && ((diff >> i) & 0x01))
+				if( mode != GPIO_MODE_IN && ((diff >> i) & 0x01))
 				{
 					qemu_set_irq(s->irq[i], (val >> i) & 0x01);
 				}
 			}
 			break;
-		case offsetof(GPIO_TypeDef, BSRR):
-			s->gpio.BSRR = val;
+		case offsetof(GPIO_TypeDef, BSRRL):
+			// atomic bit set
+			s->gpio.ODR |= val & 0xff;
 			break;
-		case offsetof(GPIO_TypeDef, BRR):
-			s->gpio.BRR = val & 0xFFFF;
+		case offsetof(GPIO_TypeDef, BSRRH):
+			// atomic bit reset
+			s->gpio.ODR &= ~(val & 0xff);
 			break;
-		case offsetof(GPIO_TypeDef, LCKR):
-			s->gpio.LCKR = val & 0x1FFFF;
-			break;
+		W_ACCESS(GPIO_TypeDef, s->gpio, LCKR, val);
+		W_ACCESS(GPIO_TypeDef, s->gpio, AFR[0], val);
+		W_ACCESS(GPIO_TypeDef, s->gpio, AFR[1], val);
 		default:
 			printf("Error : GPIO forbiden write acces offset %lx, val %lx\n", offset, val);
 			break;
@@ -84,27 +74,17 @@ static uint64_t atlantronic_gpio_read(void *opaque, hwaddr offset, unsigned size
 
 	switch(offset)
 	{
-		case offsetof(GPIO_TypeDef, CRL):
-			res = s->gpio.CRL;
-			break;
-		case offsetof(GPIO_TypeDef, CRH):
-			res = s->gpio.CRH;
-			break;
-		case offsetof(GPIO_TypeDef, IDR):
-			res = s->gpio.IDR;
-			break;
-		case offsetof(GPIO_TypeDef, ODR):
-			res = s->gpio.ODR;
-			break;
-		case offsetof(GPIO_TypeDef, BSRR):
-			printf("Error : GPIO BSRR forbiden read acces (offset %lx)\n", offset);
-			break;
-		case offsetof(GPIO_TypeDef, BRR):
-			printf("Error : GPIO BRR forbiden read acces (offset %lx)\n", offset);
-			break;
-		case offsetof(GPIO_TypeDef, LCKR):
-			res = s->gpio.LCKR;
-			break;
+		R_ACCESS(GPIO_TypeDef, s->gpio, MODER, res);
+		R_ACCESS(GPIO_TypeDef, s->gpio, OTYPER, res);
+		R_ACCESS(GPIO_TypeDef, s->gpio, OSPEEDR, res);
+		R_ACCESS(GPIO_TypeDef, s->gpio, PUPDR, res);
+		R_ACCESS(GPIO_TypeDef, s->gpio, IDR, res);
+		R_ACCESS(GPIO_TypeDef, s->gpio, ODR, res);
+		R_ACCESS(GPIO_TypeDef, s->gpio, BSRRL, res);
+		R_ACCESS(GPIO_TypeDef, s->gpio, BSRRH, res);
+		R_ACCESS(GPIO_TypeDef, s->gpio, LCKR, res);
+		R_ACCESS(GPIO_TypeDef, s->gpio, AFR[0], res);
+		R_ACCESS(GPIO_TypeDef, s->gpio, AFR[1], res);
 		default:
 			printf("Error : GPIO forbiden read acces offset %lx\n", offset);
 			break;
@@ -115,13 +95,17 @@ static uint64_t atlantronic_gpio_read(void *opaque, hwaddr offset, unsigned size
 
 static void atlantronic_gpio_reset(GPIO_TypeDef* gpio)
 {
-	gpio->CRL  = 0x44444444;
-	gpio->CRH  = 0x44444444;
-	gpio->IDR  = 0x00;
-	gpio->ODR  = 0x00;
-	gpio->BSRR = 0x00;
-	gpio->BRR  = 0x00;
+	gpio->MODER = 0x00;
+	gpio->OTYPER = 0x00;
+	gpio->OSPEEDR = 0x00;
+	gpio->PUPDR = 0x00;
+	gpio->IDR = 0x00;
+	gpio->ODR = 0x00;
+	gpio->BSRRL = 0x00;
+	gpio->BSRRH = 0x00;
 	gpio->LCKR = 0x00;
+	gpio->AFR[0] = 0x00;
+	gpio->AFR[1] = 0x00;
 }
 
 static const MemoryRegionOps atlantronic_gpio_ops =
@@ -133,47 +117,39 @@ static const MemoryRegionOps atlantronic_gpio_ops =
 
 static void atlantronic_gpio_in_recv(void * opaque, int numPin, int level)
 {
+	(void) opaque;
+	(void) numPin;
+	(void) level;
 	struct atlantronic_gpio_state *s = opaque;
 
-	int mode = 0;
-	int cnf = 0;
+	int mode = (s->gpio.MODER >> (2 * numPin)) & 0x03;
 
-	if( numPin < 8)
+	switch(mode)
 	{
-		// pin 0 a 7
-		mode = (s->gpio.CRL >> (4 * numPin)) & 0x03;
-		cnf  = (s->gpio.CRL >> (4 * numPin + 2)) & 0x03;
-	}
-	else
-	{
-		// pin 8 a 15
-		mode = (s->gpio.CRH >> (4 * (numPin - 8))) & 0x03;
-		cnf  = (s->gpio.CRH >> (4 * (numPin - 8) + 2)) & 0x03;
-	}
-
-	if( mode != 0 )
-	{
-		// pin configurée en sortie, erreur
-		hw_error("conflict, try to set gpio output pin %d lv %d", numPin, level);
-		return;
-	}
-
-	if( cnf != 0 )
-	{
-		// io 0 / 1
-		if(level)
-		{
-			s->gpio.IDR |= (1 << numPin);
-		}
-		else
-		{
-			s->gpio.IDR &= ~(1 << numPin);
-		}
-	}
-	else
-	{
-		// AN, envoi vers le module adc
-		qemu_set_irq(s->irq[numPin], level);
+		default:
+		case GPIO_MODE_IN:
+			// io 0 / 1
+			if(level)
+			{
+				s->gpio.IDR |= (1 << numPin);
+			}
+			else
+			{
+				s->gpio.IDR &= ~(1 << numPin);
+			}
+			break;
+		case GPIO_MODE_OUT:
+			// pin configurée en sortie, erreur
+			hw_error("conflict, try to set gpio output pin %d lv %d", numPin, level);
+			break;
+		case GPIO_MODE_AF:
+			// pin configuree en alternate function,  erreur
+			hw_error("conflict, try to set gpio AF pin %d lv %d", numPin, level);
+			break;
+		case GPIO_MODE_AN:
+			// AN, envoi vers le module adc
+			qemu_set_irq(s->irq[numPin], level);
+			break;
 	}
 }
 

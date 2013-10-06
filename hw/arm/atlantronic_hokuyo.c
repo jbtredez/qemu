@@ -2,15 +2,7 @@
 #include "hw/sysbus.h"
 #include "hw/boards.h"
 #include "hw/arm/arm.h"
-
-#define LINUX
-#define STM32F10X_CL
-#undef FALSE
-#undef TRUE
-#undef bool
-#include "kernel/cpu/cpu.h"
-#undef LINUX
-
+#include "atlantronic_cpu.h"
 #include "kernel/robot_parameters.h"
 #include "atlantronic_hokuyo.h"
 #include "atlantronic_tools.h"

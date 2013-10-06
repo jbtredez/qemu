@@ -2,15 +2,7 @@
 #include "hw/boards.h"
 #include "hw/arm/arm.h"
 #include "sysemu/char.h"
-
-#define LINUX
-#define STM32F10X_CL
-#undef FALSE
-#undef TRUE
-#undef bool
-#include "kernel/cpu/cpu.h"
-#undef LINUX
-
+#include "atlantronic_cpu.h"
 #include "kernel/driver/usb/stm32f1xx/otgd_fs_regs.h"
 #include "atlantronic_model.h"
 #include "atlantronic_tools.h"
@@ -50,7 +42,7 @@ struct atlantronic_motor
 	float red;      //!< reducteur
 	float i_max;    //!< courant maximal (A)
 
-	bool block;     //!< bloquage du moteur
+	int block;     //!< bloquage du moteur
 
 	float i_old;         //!< intensite du moteur du cycle precedent (A)
 	float w_old;         //!< vitesse de rotation du moteur (avant reducteur) du cycle precedent
@@ -89,7 +81,7 @@ static void atlantronic_motor_init(struct atlantronic_motor* motor)
 	motor->red = 1 / 21.0f;
 	motor->i_max = 2.25;
 
-	motor->block = false;
+	motor->block = 0;
 
 	motor->i_old = 0;
 	motor->theta_old = 0;
@@ -215,8 +207,8 @@ static void atlantronic_model_compute(struct atlantronic_model_state* s)
 	int i = 0;
 
 	// test avec moteurs non bloques
-	s->motor[0].block = false;
-	s->motor[1].block = false;
+	s->motor[0].block = 0;
+	s->motor[1].block = 0;
 	atlantronic_motor_update(&s->motor[0]);
 	atlantronic_motor_update(&s->motor[1]);
 
@@ -262,8 +254,8 @@ static void atlantronic_model_compute(struct atlantronic_model_state* s)
 
 	if( ! res )
 	{
-		s->motor[0].block = true;
-		s->motor[1].block = true;
+		s->motor[0].block = 1;
+		s->motor[1].block = 1;
 
 		// bloquage d'un des moteurs, on refait le calcul
 		atlantronic_motor_cancel_update(&s->motor[0]);
