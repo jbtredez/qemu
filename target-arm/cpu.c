@@ -429,7 +429,20 @@ static void cortex_m4_initfn(Object *obj)
     set_feature(&cpu->env, ARM_FEATURE_V7);
     set_feature(&cpu->env, ARM_FEATURE_M);
     set_feature(&cpu->env, ARM_FEATURE_VFP3);
-    cpu->midr = 0x410fc231;
+    cpu->midr = 0x4114f250;
+    cpu->id_pfr0 = 0x30;
+    cpu->id_pfr1 = 0x200;
+    cpu->id_dfr0 = 0x100000;
+    cpu->id_afr0 = 0x00;
+    cpu->id_mmfr0 = 0x100030;
+    cpu->id_mmfr1 = 0x00;
+    cpu->id_mmfr2 = 0x1000000;
+    cpu->id_mmfr3 = 0x00;
+    cpu->id_isar0 = 0x1101110;
+    cpu->id_isar1 = 0x2112000;
+    cpu->id_isar2 = 0x21232231;
+    cpu->id_isar3 = 0x1111131;
+    cpu->id_isar4 = 0x1310132;
 }
 
 static void arm_v7m_class_init(ObjectClass *oc, void *data)
