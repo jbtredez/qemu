@@ -4,10 +4,13 @@
 #include "qemu/thread.h"
 #include "sysemu/char.h"
 #include "atlantronic_cpu.h"
-#include "kernel/driver/usb/stm32f1xx/otgd_fs_regs.h"
+#include "kernel/driver/usb/stm32f4xx/usb_regs.h"
+#include "kernel/driver/usb/stm32f4xx/usbd_def.h"
 
 #define EVENT_DATA_SIZE             128
 #define EVENT_NUM                  1024
+#define NUM_TX_FIFOS                  4
+#define USB_OTG_DATA_FIFO_SIZE   0x1000
 
 enum atlantronic_event_type
 {
@@ -40,9 +43,9 @@ struct atlantronic_usb_state
 	CharDriverState *chr;
 	MemoryRegion iomem;
 	USB_OTG_GREGS gregs;
-	USB_OTG_DEV dev;
-	USB_OTG_DINEPS dineps[NUM_TX_FIFOS];
-	USB_OTG_DOUTEPS douteps[NUM_TX_FIFOS];
+	USB_OTG_DREGS dev;
+	USB_OTG_INEPREGS dineps[NUM_TX_FIFOS];
+	USB_OTG_OUTEPREGS douteps[NUM_TX_FIFOS];
 	uint32_t fifo[USB_OTG_DATA_FIFO_SIZE/4 * NUM_TX_FIFOS];
 	int32_t fifo_start[NUM_TX_FIFOS];
 	int32_t fifo_end[NUM_TX_FIFOS];
@@ -54,6 +57,7 @@ struct atlantronic_usb_state
 	QemuMutex event_mutex;
 	QemuCond event_cond;
 	QemuCond xfer_complete_cond;
+	QemuCond setup_complete_cond;
 	QemuMutex xfer_complete_mutex;
 
 	// fifos d'envoi
@@ -77,14 +81,17 @@ static void atlantronic_usb_reset(struct atlantronic_usb_state* usb)
 	usb->gregs.GRXSTSR = 0x00;
 	usb->gregs.GRXSTSP = 0x00;
 	usb->gregs.GRXFSIZ = 0x00000200;
-	usb->gregs.DIEPTXF0 = 0x00000200;
+	usb->gregs.DIEPTXF0_HNPTXFSIZ = 0x00000200;
 	usb->gregs.HNPTXSTS = 0x00080200;
+	usb->gregs.GI2CCTL = 0x00;
 	usb->gregs.GCCFG = 0x00;
 	usb->gregs.CID = 0x00001000;
 	usb->gregs.HPTXFSIZ = 0x02000600;
-	usb->gregs.DIEPTXFx[0] = 0x02000400;
-	usb->gregs.DIEPTXFx[1] = 0x02000400;
-	usb->gregs.DIEPTXFx[2] = 0x02000400;
+
+	for(i = 0; i < USB_OTG_MAX_TX_FIFOS; i++)
+	{
+		usb->gregs.DIEPTXF[i] = 0x02000400;
+	}
 
 	usb->dev.DCFG = 0x02200000;
 	usb->dev.DCTL = 0x00;
@@ -95,19 +102,27 @@ static void atlantronic_usb_reset(struct atlantronic_usb_state* usb)
 	usb->dev.DAINTMSK = 0x00;
 	usb->dev.DVBUSDIS = 0x000017D7;
 	usb->dev.DVBUSPULSE = 0x000005B8;
+	usb->dev.DTHRCTL = 0x00;
 	usb->dev.DIEPEMPMSK = 0x00;
+	usb->dev.DEACHINT = 0x00;
+	usb->dev.DEACHMSK = 0x00;
+	usb->dev.DINEP1MSK = 0x00;
+	usb->dev.DOUTEP1MSK = 0x00;
 
 	for(i = 0; i < NUM_TX_FIFOS; i++)
 	{
-		usb->dineps[i].DIEPCTLx = 0x00;
-		usb->dineps[i].DIEPINTx = 0x00000080;
-		usb->dineps[i].DIEPTSIZx = 0x00;
-		usb->dineps[i].DTXFSTSx = 0x00;
+		usb->dineps[i].DIEPCTL = 0x00;
+		usb->dineps[i].DIEPINT = 0x00000080;
+		usb->dineps[i].DIEPTSIZ = 0x00;
+		usb->dineps[i].DIEPDMA = 0x00;
+		usb->dineps[i].DTXFSTS = 0x00;
 
-		usb->douteps[i].DOEPCTLx = 0x00008000;
-		usb->douteps[i].DOEPINTx = 0x00000080;
-		usb->douteps[i].DOEPTSIZx = 0x00;
-		
+		usb->douteps[i].DOEPCTL = 0x00008000;
+		usb->douteps[i].DOUTEPFRM = 0x00;
+		usb->douteps[i].DOEPINT = 0x00000080;
+		usb->douteps[i].DOEPTSIZ = 0x00;
+		usb->douteps[i].DOEPDMA = 0x00;
+
 		usb->fifo_start[i] = 0;
 		usb->fifo_end[i] = 0;
 
@@ -134,36 +149,39 @@ static void* atlantronic_usb_rx_thread(void* arg)
 		usb->event_start = (usb->event_start + 1) % EVENT_NUM;
 		qemu_mutex_unlock(&usb->event_mutex);
 
-		USB_OTG_GRXSTSP_TypeDef grxstsp;
+		USB_OTG_GRXFSTS_TypeDef grxstsp;
 		grxstsp.d32 = usb->gregs.GRXSTSP;
-		if(ev.type == ATLANTRONIC_EVENT_SETUP)
-		{
-			grxstsp.b.pktsts = 6;  // SETUP data packet received (PKTSTS)
-		}
-		else // ATLANTRONIC_EVENT_DATA
+		if(ev.type == ATLANTRONIC_EVENT_DATA)
 		{
 			grxstsp.b.pktsts = 2;
 		}
 
 		atlantronic_usb_write_rx_fifo0_data(usb, ev.data, ev.length);
-		grxstsp.b.epnum = ev.ep;
+		grxstsp.b.chnum = ev.ep;
 		grxstsp.b.bcnt = ev.length;
 
 		usb->gregs.GRXSTSP = grxstsp.d32;
-		if(ev.ep == 0)
-		{
-			// si ep 0, on gruge, setup done
-			usb->douteps[0].DOEPINTx = 0x08;    // EP0 -> STUP (SETUP phase done)
-		}
 
 		qemu_mutex_lock(&usb->xfer_complete_mutex);
 		usb->gregs.GINTSTS |= 0x10;          // IT RX fifo
 		usb->gregs.GINTSTS |= 0x80000;       // IT out EP
 		qemu_set_irq(usb->irq, 1);
 		qemu_cond_wait(&usb->xfer_complete_cond, &usb->xfer_complete_mutex);
+
+		if(ev.type == ATLANTRONIC_EVENT_SETUP && ev.ep == 0)
+		{
+			grxstsp.d32 = usb->gregs.GRXSTSP;
+			grxstsp.b.pktsts = 6;  // SETUP data packet received (PKTSTS)
+			usb->gregs.GRXSTSP = grxstsp.d32;
+			// setup done
+			usb->douteps[0].DOEPINT = 0x08;    // EP0 -> STUP (SETUP phase done)
+			usb->gregs.GINTSTS |= 0x80000;     // IT out EP
+			qemu_set_irq(usb->irq, 1);
+			qemu_cond_wait(&usb->setup_complete_cond, &usb->xfer_complete_mutex);
+		}
+
 		qemu_mutex_unlock(&usb->xfer_complete_mutex);
 	}
-
 
 	return 0;
 }
@@ -177,7 +195,6 @@ static uint32_t atlantronic_usb_read32_fifo(struct atlantronic_usb_state *usb, i
 	{
 		usb->fifo_start[fifo_id] = 0;
 	}
-
 	return data;
 }
 
@@ -225,12 +242,8 @@ static void atlantronic_usb_write_gregs(struct atlantronic_usb_state *usb, hwadd
 {
 	switch(offset)
 	{
-		case offsetof(USB_OTG_GREGS, GOTGCTL):
-			usb->gregs.GOTGCTL = val;
-			break;
-		case offsetof(USB_OTG_GREGS, GOTGINT):
-			usb->gregs.GOTGINT = val;
-			break;
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, GOTGCTL, val);
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, GOTGINT, val);
 		case offsetof(USB_OTG_GREGS, GAHBCFG):
 			usb->gregs.GAHBCFG = val;
 			if( val & 0x01)
@@ -239,24 +252,21 @@ static void atlantronic_usb_write_gregs(struct atlantronic_usb_state *usb, hwadd
 				qemu_set_irq(usb->irq, 1);
 			}
 			break;
-		case offsetof(USB_OTG_GREGS, GUSBCFG):
-			usb->gregs.GUSBCFG = val;
-			break;
-		case offsetof(USB_OTG_GREGS, GRSTCTL):
-			usb->gregs.GRSTCTL = val;
-			break;
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, GUSBCFG, val);
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, GRSTCTL, val);
 		case offsetof(USB_OTG_GREGS, GINTSTS):
 			if( (val & 0x1000) && (usb->gregs.GINTSTS & 0x1000)) // clear bit d'IT reset
 			{
 				qemu_mutex_lock(&usb->event_mutex);
 				if((usb->event_end + 1) % EVENT_NUM != usb->event_start)
 				{
+					//printf("[QEMU] set address 1\n");
 					// il reste de la place
 					usb->event[usb->event_end].type = ATLANTRONIC_EVENT_SETUP;
 					usb->event[usb->event_end].ep = 0;
 					usb->event[usb->event_end].length = 8;
 					usb->event[usb->event_end].setup_request_type = 0x00;
-					usb->event[usb->event_end].setup_request = 0x09;
+					usb->event[usb->event_end].setup_request = USB_REQ_SET_ADDRESS;
 					usb->event[usb->event_end].setup_wvalue = 0x0001;
 					usb->event[usb->event_end].setup_windex = 0x0000;
 					usb->event[usb->event_end].setup_length = 0x0000;
@@ -271,42 +281,19 @@ static void atlantronic_usb_write_gregs(struct atlantronic_usb_state *usb, hwadd
 			}
 			usb->gregs.GINTSTS &= ~(usb->gregs.GINTSTS & val);
 			break;
-		case offsetof(USB_OTG_GREGS, GINTMSK):
-			usb->gregs.GINTMSK = val;
-			break;
-		case offsetof(USB_OTG_GREGS, GRXSTSR):
-			usb->gregs.GRXSTSR = val;
-			break;
-		case offsetof(USB_OTG_GREGS, GRXSTSP):
-			usb->gregs.GRXSTSP = val;
-			break;
-		case offsetof(USB_OTG_GREGS, GRXFSIZ):
-			usb->gregs.GRXFSIZ = val;
-			break;
-		case offsetof(USB_OTG_GREGS, DIEPTXF0):
-			usb->gregs.DIEPTXF0 = val;
-			break;
-		case offsetof(USB_OTG_GREGS, HNPTXSTS):
-			usb->gregs.HNPTXSTS = val;
-			break;
-		case offsetof(USB_OTG_GREGS, GCCFG):
-			usb->gregs.GCCFG = val;
-			break;
-		case offsetof(USB_OTG_GREGS, CID):
-			usb->gregs.CID = val;
-			break;
-		case offsetof(USB_OTG_GREGS, HPTXFSIZ):
-			usb->gregs.HPTXFSIZ = val;
-			break;
-		case offsetof(USB_OTG_GREGS, DIEPTXFx[0]):
-			usb->gregs.DIEPTXFx[0] = val;
-			break;
-		case offsetof(USB_OTG_GREGS, DIEPTXFx[1]):
-			usb->gregs.DIEPTXFx[1] = val;
-			break;
-		case offsetof(USB_OTG_GREGS, DIEPTXFx[2]):
-			usb->gregs.DIEPTXFx[2] = val;
-			break;
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, GINTMSK, val);
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, GRXSTSR, val);
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, GRXSTSP, val);
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, GRXFSIZ, val);
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, DIEPTXF0_HNPTXFSIZ, val);
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, HNPTXSTS, val);
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, GI2CCTL, val);
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, GCCFG, val);
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, CID, val);
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, HPTXFSIZ, val);
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, DIEPTXF[0], val);
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, DIEPTXF[1], val);
+		W_ACCESS(USB_OTG_GREGS, usb->gregs, DIEPTXF[2], val);
 		default:
 			printf("Error : USB forbiden gregs write acces offset %lx, val %lx\n", offset, val);
 			break;
@@ -319,60 +306,25 @@ static uint64_t atlantronic_usb_read_gregs(struct atlantronic_usb_state *usb, hw
 
 	switch(offset)
 	{
-		case offsetof(USB_OTG_GREGS, GOTGCTL):
-			val = usb->gregs.GOTGCTL;
-			break;
-		case offsetof(USB_OTG_GREGS, GOTGINT):
-			val = usb->gregs.GOTGINT;
-			break; 
-		case offsetof(USB_OTG_GREGS, GAHBCFG):
-			val = usb->gregs.GAHBCFG;
-			break;
-		case offsetof(USB_OTG_GREGS, GUSBCFG):
-			val = usb->gregs.GUSBCFG;
-			break;
-		case offsetof(USB_OTG_GREGS, GRSTCTL):
-			val = usb->gregs.GRSTCTL;
-			break;
-		case offsetof(USB_OTG_GREGS, GINTSTS):
-			val = usb->gregs.GINTSTS;
-			break;
-		case offsetof(USB_OTG_GREGS, GINTMSK):
-			val = usb->gregs.GINTMSK;
-			break;
-		case offsetof(USB_OTG_GREGS, GRXSTSR):
-			val = usb->gregs.GRXSTSR;
-			break;
-		case offsetof(USB_OTG_GREGS, GRXSTSP):
-			val = usb->gregs.GRXSTSP;
-			break;
-		case offsetof(USB_OTG_GREGS, GRXFSIZ):
-			val = usb->gregs.GRXFSIZ;
-			break;
-		case offsetof(USB_OTG_GREGS, DIEPTXF0):
-			val = usb->gregs.DIEPTXF0;
-			break;
-		case offsetof(USB_OTG_GREGS, HNPTXSTS):
-			val = usb->gregs.HNPTXSTS;
-			break;
-		case offsetof(USB_OTG_GREGS, GCCFG):
-			val = usb->gregs.GCCFG;
-			break;
-		case offsetof(USB_OTG_GREGS, CID):
-			val = usb->gregs.CID;
-			break;
-		case offsetof(USB_OTG_GREGS, HPTXFSIZ):
-			val = usb->gregs.HPTXFSIZ;
-			break;
-		case offsetof(USB_OTG_GREGS, DIEPTXFx[0]):
-			val = usb->gregs.DIEPTXFx[0];
-			break;
-		case offsetof(USB_OTG_GREGS, DIEPTXFx[1]):
-			val = usb->gregs.DIEPTXFx[1];
-			break;
-		case offsetof(USB_OTG_GREGS, DIEPTXFx[2]):
-			val = usb->gregs.DIEPTXFx[2];
-			break;
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, GOTGCTL, val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, GOTGINT, val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, GAHBCFG, val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, GUSBCFG, val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, GRSTCTL, val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, GINTSTS, val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, GINTMSK, val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, GRXSTSR, val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, GRXSTSP, val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, GRXFSIZ, val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, DIEPTXF0_HNPTXFSIZ, val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, HNPTXSTS, val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, GI2CCTL, val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, GCCFG, val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, CID, val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, HPTXFSIZ, val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, DIEPTXF[0], val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, DIEPTXF[1], val);
+		R_ACCESS(USB_OTG_GREGS, usb->gregs, DIEPTXF[2], val);
 		default:
 			printf("Error : USB forbiden gregs read acces offset %lx\n", offset);
 			break;
@@ -385,36 +337,52 @@ static void atlantronic_usb_write_dev(struct atlantronic_usb_state *usb, hwaddr 
 {
 	switch(offset)
 	{
-		case offsetof(USB_OTG_DEV, DCFG):
-			usb->dev.DCFG = val;
+		case offsetof(USB_OTG_DREGS, DCFG):
+			{
+				USB_OTG_DCFG_TypeDef new_dcfg;
+				USB_OTG_DCFG_TypeDef old_dcfg;
+				new_dcfg.d32 = val;
+				old_dcfg.d32 = usb->dev.DCFG;
+				if(old_dcfg.b.devaddr == 0 && new_dcfg.b.devaddr != 0)
+				{
+					//printf("[QEMU] usb addressed (%d)\n", new_dcfg.b.devaddr);
+					qemu_mutex_lock(&usb->event_mutex);
+
+					if((usb->event_end + 1) % EVENT_NUM != usb->event_start)
+					{
+						// il reste de la place
+						//printf("[QEMU] usb set configuration\n");
+						usb->event[usb->event_end].type = ATLANTRONIC_EVENT_SETUP;
+						usb->event[usb->event_end].ep = 0;
+						usb->event[usb->event_end].length = 8;
+						usb->event[usb->event_end].setup_request_type = 0x00;
+						usb->event[usb->event_end].setup_request = USB_REQ_SET_CONFIGURATION;
+						usb->event[usb->event_end].setup_wvalue = 0x0001;
+						usb->event[usb->event_end].setup_windex = 0x0000;
+						usb->event[usb->event_end].setup_length = 0x0000;
+						usb->event_end = (usb->event_end + 1) % EVENT_NUM;
+					}
+
+					qemu_cond_signal(&usb->event_cond);
+					qemu_mutex_unlock(&usb->event_mutex);
+				}
+				usb->dev.DCFG = val;
+			}
 			break;
-		case offsetof(USB_OTG_DEV, DCTL):
-			usb->dev.DCTL = val;
-			break;
-		case offsetof(USB_OTG_DEV, DSTS):
-			usb->dev.DSTS = val;
-			break;
-		case offsetof(USB_OTG_DEV, DIEPMSK):
-			usb->dev.DIEPMSK = val;
-			break;
-		case offsetof(USB_OTG_DEV, DOEPMSK):
-			usb->dev.DOEPMSK = val;
-			break;
-		case offsetof(USB_OTG_DEV, DAINT):
-			usb->dev.DAINT = val;
-			break;
-		case offsetof(USB_OTG_DEV, DAINTMSK):
-			usb->dev.DAINTMSK = val;
-			break;
-		case offsetof(USB_OTG_DEV, DVBUSDIS):
-			usb->dev.DVBUSDIS = val;
-			break;
-		case offsetof(USB_OTG_DEV, DVBUSPULSE):
-			usb->dev.DVBUSPULSE = val;
-			break;
-		case offsetof(USB_OTG_DEV, DIEPEMPMSK):
-			usb->dev.DIEPEMPMSK = val;
-			break;
+		W_ACCESS(USB_OTG_DREGS, usb->dev, DCTL, val);
+		W_ACCESS(USB_OTG_DREGS, usb->dev, DSTS, val);
+		W_ACCESS(USB_OTG_DREGS, usb->dev, DIEPMSK, val);
+		W_ACCESS(USB_OTG_DREGS, usb->dev, DOEPMSK, val);
+		W_ACCESS(USB_OTG_DREGS, usb->dev, DAINT, val);
+		W_ACCESS(USB_OTG_DREGS, usb->dev, DAINTMSK, val);
+		W_ACCESS(USB_OTG_DREGS, usb->dev, DVBUSDIS, val);
+		W_ACCESS(USB_OTG_DREGS, usb->dev, DVBUSPULSE, val);
+		W_ACCESS(USB_OTG_DREGS, usb->dev, DTHRCTL, val);
+		W_ACCESS(USB_OTG_DREGS, usb->dev, DIEPEMPMSK, val);
+		W_ACCESS(USB_OTG_DREGS, usb->dev, DEACHINT, val);
+		W_ACCESS(USB_OTG_DREGS, usb->dev, DEACHMSK, val);
+		W_ACCESS(USB_OTG_DREGS, usb->dev, DINEP1MSK, val);
+		W_ACCESS(USB_OTG_DREGS, usb->dev, DOUTEP1MSK, val);
 		default:
 			printf("Error : USB forbiden dev write acces offset %lx\n", offset);
 			break;
@@ -427,36 +395,21 @@ static uint64_t atlantronic_usb_read_dev(struct atlantronic_usb_state *usb, hwad
 
 	switch(offset)
 	{
-		case offsetof(USB_OTG_DEV, DCFG):
-			val = usb->dev.DCFG;
-			break;
-		case offsetof(USB_OTG_DEV, DCTL):
-			val = usb->dev.DCTL;
-			break;
-		case offsetof(USB_OTG_DEV, DSTS):
-			val = usb->dev.DSTS;
-			break;
-		case offsetof(USB_OTG_DEV, DIEPMSK):
-			val = usb->dev.DIEPMSK;
-			break;
-		case offsetof(USB_OTG_DEV, DOEPMSK):
-			val = usb->dev.DOEPMSK;
-			break;
-		case offsetof(USB_OTG_DEV, DAINT):
-			val = usb->dev.DAINT;
-			break;
-		case offsetof(USB_OTG_DEV, DAINTMSK):
-			val = usb->dev.DAINTMSK;
-			break;
-		case offsetof(USB_OTG_DEV, DVBUSDIS):
-			val = usb->dev.DVBUSDIS;
-			break;
-		case offsetof(USB_OTG_DEV, DVBUSPULSE):
-			val = usb->dev.DVBUSPULSE;
-			break;
-		case offsetof(USB_OTG_DEV, DIEPEMPMSK):
-			val = usb->dev.DIEPEMPMSK;
-			break;
+		R_ACCESS(USB_OTG_DREGS, usb->dev, DCFG, val);
+		R_ACCESS(USB_OTG_DREGS, usb->dev, DCTL, val);
+		R_ACCESS(USB_OTG_DREGS, usb->dev, DSTS, val);
+		R_ACCESS(USB_OTG_DREGS, usb->dev, DIEPMSK, val);
+		R_ACCESS(USB_OTG_DREGS, usb->dev, DOEPMSK, val);
+		R_ACCESS(USB_OTG_DREGS, usb->dev, DAINT, val);
+		R_ACCESS(USB_OTG_DREGS, usb->dev, DAINTMSK, val);
+		R_ACCESS(USB_OTG_DREGS, usb->dev, DVBUSDIS, val);
+		R_ACCESS(USB_OTG_DREGS, usb->dev, DVBUSPULSE, val);
+		R_ACCESS(USB_OTG_DREGS, usb->dev, DTHRCTL, val);
+		R_ACCESS(USB_OTG_DREGS, usb->dev, DIEPEMPMSK, val);
+		R_ACCESS(USB_OTG_DREGS, usb->dev, DEACHINT, val);
+		R_ACCESS(USB_OTG_DREGS, usb->dev, DEACHMSK, val);
+		R_ACCESS(USB_OTG_DREGS, usb->dev, DINEP1MSK, val);
+		R_ACCESS(USB_OTG_DREGS, usb->dev, DOUTEP1MSK, val);
 		default:
 			printf("Error : USB forbiden dev read acces offset %lx\n", offset);
 			break;
@@ -467,7 +420,7 @@ static uint64_t atlantronic_usb_read_dev(struct atlantronic_usb_state *usb, hwad
 
 static void atlantronic_usb_write_dineps(struct atlantronic_usb_state *usb, hwaddr offset, uint64_t val, unsigned size)
 {
-	int i = offset / sizeof(USB_OTG_DINEPS);
+	int i = offset / sizeof(USB_OTG_INEPREGS);
 
 	if(i >= NUM_TX_FIFOS)
 	{
@@ -475,16 +428,16 @@ static void atlantronic_usb_write_dineps(struct atlantronic_usb_state *usb, hwad
 		return;
 	}
 
-	switch(offset % sizeof(USB_OTG_DINEPS))
+	switch(offset % sizeof(USB_OTG_INEPREGS))
 	{
-		case offsetof(USB_OTG_DINEPS, DIEPCTLx):
+		case offsetof(USB_OTG_INEPREGS, DIEPCTL):
 			if( val & 80000000 && i > 0) // EPNA et endpoint != 0
 			{
-				int xfrsiz = usb->dineps[i].DIEPTSIZx & 0x7ffff;
+				int xfrsiz = usb->dineps[i].DIEPTSIZ & 0x7ffff;
 				if(xfrsiz > 0)
 				{
-					usb->dineps[i].DIEPINTx = 0x80; // txfempty et pas d'autres flags
-					usb->dineps[i].DTXFSTSx = USB_OTG_DATA_FIFO_SIZE/4; // taille libre de la fifo
+					usb->dineps[i].DIEPINT = 0x80; // txfempty et pas d'autres flags
+					usb->dineps[i].DTXFSTS = USB_OTG_DATA_FIFO_SIZE/4; // taille libre de la fifo
 					usb->gregs.GINTSTS |= 0x40000;       // IT in EP (inepint)
 					qemu_set_irq(usb->irq, 1);
 				}
@@ -497,18 +450,18 @@ static void atlantronic_usb_write_dineps(struct atlantronic_usb_state *usb, hwad
 			{
 				qemu_set_irq(usb->irq, 0);
 			}
-			usb->dineps[i].DIEPCTLx = val;
+			usb->dineps[i].DIEPCTL = val;
 			break;
-		case offsetof(USB_OTG_DINEPS, DIEPINTx):
-			usb->dineps[i].DIEPINTx = val;
+		case offsetof(USB_OTG_INEPREGS, DIEPINT):
+			usb->dineps[i].DIEPINT = val;
 			if(val == 0x80)
 			{
 				// Une fois le message lu, on met le flag xfrc (transfert terminé)
-				int xfrsiz = usb->dineps[i].DIEPTSIZx & 0x7ffff;
+				int xfrsiz = usb->dineps[i].DIEPTSIZ & 0x7ffff;
 				if(xfrsiz <= usb->tx_count[i])
 				{
 					usb->tx_count[i] = 0;
-					usb->dineps[i].DIEPINTx |= 0x01; // xfrc
+					usb->dineps[i].DIEPINT |= 0x01; // xfrc
 					usb->gregs.GINTSTS |= 0x40000;   // IT in EP (inepint)
 					qemu_set_irq(usb->irq, 1);
 				}
@@ -522,12 +475,9 @@ static void atlantronic_usb_write_dineps(struct atlantronic_usb_state *usb, hwad
 				qemu_set_irq(usb->irq, 0);
 			}
 			break;
-		case offsetof(USB_OTG_DINEPS, DIEPTSIZx):
-			usb->dineps[i].DIEPTSIZx = val;
-			break;
-		case offsetof(USB_OTG_DINEPS, DTXFSTSx):
-			usb->dineps[i].DTXFSTSx = val;
-			break;
+		W_ACCESS(USB_OTG_INEPREGS, usb->dineps[i], DIEPDMA, val);
+		W_ACCESS(USB_OTG_INEPREGS, usb->dineps[i], DIEPTSIZ, val);
+		W_ACCESS(USB_OTG_INEPREGS, usb->dineps[i], DTXFSTS, val);
 		default:
 			printf("Error : USB forbiden dineps write acces offset %lx\n", offset);
 			break;
@@ -537,7 +487,7 @@ static void atlantronic_usb_write_dineps(struct atlantronic_usb_state *usb, hwad
 static uint64_t atlantronic_usb_read_dineps(struct atlantronic_usb_state *usb, hwaddr offset, unsigned size)
 {
 	uint64_t val = 0;
-	int i = offset / sizeof(USB_OTG_DINEPS);
+	int i = offset / sizeof(USB_OTG_INEPREGS);
 
 	if(i >= NUM_TX_FIFOS)
 	{
@@ -545,20 +495,13 @@ static uint64_t atlantronic_usb_read_dineps(struct atlantronic_usb_state *usb, h
 		return 0;
 	}
 
-	switch(offset % sizeof(USB_OTG_DINEPS))
+	switch(offset % sizeof(USB_OTG_INEPREGS))
 	{
-		case offsetof(USB_OTG_DINEPS, DIEPCTLx):
-			val = usb->dineps[i].DIEPCTLx;
-			break;
-		case offsetof(USB_OTG_DINEPS, DIEPINTx):
-			val = usb->dineps[i].DIEPINTx;
-			break;
-		case offsetof(USB_OTG_DINEPS, DIEPTSIZx):
-			val = usb->dineps[i].DIEPTSIZx;
-			break;
-		case offsetof(USB_OTG_DINEPS, DTXFSTSx):
-			val = usb->dineps[i].DTXFSTSx;
-			break;
+		R_ACCESS(USB_OTG_INEPREGS, usb->dineps[i], DIEPCTL, val);
+		R_ACCESS(USB_OTG_INEPREGS, usb->dineps[i], DIEPINT, val);
+		R_ACCESS(USB_OTG_INEPREGS, usb->dineps[i], DIEPDMA, val);
+		R_ACCESS(USB_OTG_INEPREGS, usb->dineps[i], DIEPTSIZ, val);
+		R_ACCESS(USB_OTG_INEPREGS, usb->dineps[i], DTXFSTS, val);
 		default:
 			printf("Error : USB forbiden dineps read acces offset %lx\n", offset);
 			break;
@@ -569,7 +512,8 @@ static uint64_t atlantronic_usb_read_dineps(struct atlantronic_usb_state *usb, h
 
 static void atlantronic_usb_write_douteps(struct atlantronic_usb_state *usb, hwaddr offset, uint64_t val, unsigned size)
 {
-	int i = offset / sizeof(USB_OTG_DOUTEPS);
+	int i = offset / sizeof(USB_OTG_OUTEPREGS);
+	USB_OTG_DOEPINTn_TypeDef doepint;
 
 	if(i >= NUM_TX_FIFOS)
 	{
@@ -577,27 +521,39 @@ static void atlantronic_usb_write_douteps(struct atlantronic_usb_state *usb, hwa
 		return;
 	}
 
-	switch(offset % sizeof(USB_OTG_DOUTEPS))
+	switch(offset % sizeof(USB_OTG_OUTEPREGS))
 	{
-		case offsetof(USB_OTG_DOUTEPS, DOEPCTLx):
-			usb->douteps[i].DOEPCTLx = val;
-			break;
-		case offsetof(USB_OTG_DOUTEPS, DOEPINTx):
-			if(val & 0x01)
+		W_ACCESS(USB_OTG_OUTEPREGS, usb->douteps[i], DOEPCTL, val);
+		W_ACCESS(USB_OTG_OUTEPREGS, usb->douteps[i], DOUTEPFRM, val);
+		case offsetof(USB_OTG_OUTEPREGS, DOEPINT):
+			doepint.d32 = val;
+			if(val != 0xff)
 			{
-				// flag xfercompl
-				qemu_mutex_lock(&usb->xfer_complete_mutex);
-				usb->gregs.GINTSTS &= ~0x10;          // IT RX fifo
-				usb->gregs.GINTSTS &= ~0x80000;       // IT out EP
-				qemu_set_irq(usb->irq, 0);
-				qemu_cond_signal(&usb->xfer_complete_cond);
-				qemu_mutex_unlock(&usb->xfer_complete_mutex);
+				if(doepint.b.xfercompl)
+				{
+					// flag xfercompl
+					qemu_mutex_lock(&usb->xfer_complete_mutex);
+					usb->gregs.GINTSTS &= ~0x10;          // IT RX fifo
+					usb->gregs.GINTSTS &= ~0x80000;       // IT out EP
+					qemu_set_irq(usb->irq, 0);
+					qemu_cond_signal(&usb->xfer_complete_cond);
+					qemu_mutex_unlock(&usb->xfer_complete_mutex);
+				}
+				if(doepint.b.setup)
+				{
+					qemu_mutex_lock(&usb->xfer_complete_mutex);
+					usb->gregs.GINTSTS &= ~0x80000;       // IT out EP
+					//printf("[QEMU] paquet setup ok\n");
+					qemu_set_irq(usb->irq, 0);
+					qemu_cond_signal(&usb->setup_complete_cond);
+					qemu_mutex_unlock(&usb->xfer_complete_mutex);
+					doepint.b.xfercompl = 1;
+				}
 			}
-			usb->douteps[i].DOEPINTx = val;
+			usb->douteps[i].DOEPINT = doepint.d32;
 			break;
-		case offsetof(USB_OTG_DOUTEPS, DOEPTSIZx):
-			usb->douteps[i].DOEPTSIZx = val;
-			break;
+		W_ACCESS(USB_OTG_OUTEPREGS, usb->douteps[i], DOEPTSIZ, val);
+		W_ACCESS(USB_OTG_OUTEPREGS, usb->douteps[i], DOEPDMA, val);
 		default:
 			printf("Error : USB forbiden douteps write acces offset %lx\n", offset);
 			break;
@@ -607,7 +563,7 @@ static void atlantronic_usb_write_douteps(struct atlantronic_usb_state *usb, hwa
 static uint64_t atlantronic_usb_read_douteps(struct atlantronic_usb_state *usb, hwaddr offset, unsigned size)
 {
 	uint64_t val = 0;
-	int i = offset / sizeof(USB_OTG_DOUTEPS);
+	int i = offset / sizeof(USB_OTG_OUTEPREGS);
 
 	if(i >= NUM_TX_FIFOS)
 	{
@@ -615,17 +571,13 @@ static uint64_t atlantronic_usb_read_douteps(struct atlantronic_usb_state *usb, 
 		return 0;
 	}
 
-	switch(offset % sizeof(USB_OTG_DOUTEPS))
+	switch(offset % sizeof(USB_OTG_OUTEPREGS))
 	{
-		case offsetof(USB_OTG_DOUTEPS, DOEPCTLx):
-			val = usb->douteps[i].DOEPCTLx;
-			break;
-		case offsetof(USB_OTG_DOUTEPS, DOEPINTx):
-			val = usb->douteps[i].DOEPINTx;
-			break;
-		case offsetof(USB_OTG_DOUTEPS, DOEPTSIZx):
-			val = usb->douteps[i].DOEPTSIZx;
-			break;
+		R_ACCESS(USB_OTG_OUTEPREGS, usb->douteps[i], DOEPCTL, val);
+		R_ACCESS(USB_OTG_OUTEPREGS, usb->douteps[i], DOUTEPFRM, val);
+		R_ACCESS(USB_OTG_OUTEPREGS, usb->douteps[i], DOEPINT, val);
+		R_ACCESS(USB_OTG_OUTEPREGS, usb->douteps[i], DOEPTSIZ, val);
+		R_ACCESS(USB_OTG_OUTEPREGS, usb->douteps[i], DOEPDMA, val);
 		default:
 			printf("Error : USB forbiden douteps read acces offset %lx\n", offset);
 			break;
@@ -664,7 +616,7 @@ static void atlantronic_usb_write_fifo(struct atlantronic_usb_state *usb, hwaddr
 		return;
 	}
 
-	int remain = (usb->dineps[i].DIEPTSIZx & 0x7ffff) - usb->tx_count[i];
+	int remain = (usb->dineps[i].DIEPTSIZ & 0x7ffff) - usb->tx_count[i];
 	if(remain > 0)
 	{
 		if(size > remain)
@@ -681,19 +633,20 @@ static void atlantronic_usb_write_fifo(struct atlantronic_usb_state *usb, hwaddr
 static void atlantronic_usb_write(void *opaque, hwaddr offset, uint64_t val, unsigned size)
 {
 	struct atlantronic_usb_state* usb = opaque;
+
 	if( /*offset >= USB_OTG_CORE_GLOBAL_REGS_OFFSET &&*/ offset < USB_OTG_CORE_GLOBAL_REGS_OFFSET + sizeof(USB_OTG_GREGS))
 	{
 		atlantronic_usb_write_gregs(usb, offset - USB_OTG_CORE_GLOBAL_REGS_OFFSET, val, size);
 	}
-	else if(offset >= USB_OTG_DEV_GLOBAL_REG_OFFSET && offset < USB_OTG_DEV_GLOBAL_REG_OFFSET + sizeof(USB_OTG_DEV))
+	else if(offset >= USB_OTG_DEV_GLOBAL_REG_OFFSET && offset < USB_OTG_DEV_GLOBAL_REG_OFFSET + sizeof(USB_OTG_DREGS))
 	{
 		atlantronic_usb_write_dev(usb, offset - USB_OTG_DEV_GLOBAL_REG_OFFSET, val, size);
 	}
-	else if(offset >= USB_OTG_DEV_IN_EP_REG_OFFSET && offset < USB_OTG_DEV_IN_EP_REG_OFFSET + sizeof(USB_OTG_DINEPS) * NUM_TX_FIFOS)
+	else if(offset >= USB_OTG_DEV_IN_EP_REG_OFFSET && offset < USB_OTG_DEV_IN_EP_REG_OFFSET + sizeof(USB_OTG_INEPREGS) * NUM_TX_FIFOS)
 	{
 		atlantronic_usb_write_dineps(usb, offset - USB_OTG_DEV_IN_EP_REG_OFFSET, val, size);
 	}
-	else if(offset >= USB_OTG_DEV_OUT_EP_REG_OFFSET && offset < USB_OTG_DEV_OUT_EP_REG_OFFSET + sizeof(USB_OTG_DOUTEPS) * NUM_TX_FIFOS)
+	else if(offset >= USB_OTG_DEV_OUT_EP_REG_OFFSET && offset < USB_OTG_DEV_OUT_EP_REG_OFFSET + sizeof(USB_OTG_OUTEPREGS) * NUM_TX_FIFOS)
 	{
 		atlantronic_usb_write_douteps(usb, offset - USB_OTG_DEV_OUT_EP_REG_OFFSET, val, size);
 	}
@@ -714,21 +667,20 @@ static void atlantronic_usb_write(void *opaque, hwaddr offset, uint64_t val, uns
 static uint64_t atlantronic_usb_read(void *opaque, hwaddr offset, unsigned size)
 {
 	uint64_t val = 0;
-
 	struct atlantronic_usb_state* usb = opaque;
 	if( /*offset >= USB_OTG_CORE_GLOBAL_REGS_OFFSET &&*/ offset < USB_OTG_CORE_GLOBAL_REGS_OFFSET + sizeof(USB_OTG_GREGS))
 	{
 		val = atlantronic_usb_read_gregs(usb, offset - USB_OTG_CORE_GLOBAL_REGS_OFFSET, size);
 	}
-	else if(offset >= USB_OTG_DEV_GLOBAL_REG_OFFSET && offset < USB_OTG_DEV_GLOBAL_REG_OFFSET + sizeof(USB_OTG_DEV))
+	else if(offset >= USB_OTG_DEV_GLOBAL_REG_OFFSET && offset < USB_OTG_DEV_GLOBAL_REG_OFFSET + sizeof(USB_OTG_DREGS))
 	{
 		val = atlantronic_usb_read_dev(usb, offset - USB_OTG_DEV_GLOBAL_REG_OFFSET, size);
 	}
-	else if(offset >= USB_OTG_DEV_IN_EP_REG_OFFSET && offset < USB_OTG_DEV_IN_EP_REG_OFFSET + sizeof(USB_OTG_DINEPS) * NUM_TX_FIFOS)
+	else if(offset >= USB_OTG_DEV_IN_EP_REG_OFFSET && offset < USB_OTG_DEV_IN_EP_REG_OFFSET + sizeof(USB_OTG_INEPREGS) * NUM_TX_FIFOS)
 	{
 		val = atlantronic_usb_read_dineps(usb, offset - USB_OTG_DEV_IN_EP_REG_OFFSET, size);
 	}
-	else if(offset >= USB_OTG_DEV_OUT_EP_REG_OFFSET && offset < USB_OTG_DEV_OUT_EP_REG_OFFSET + sizeof(USB_OTG_DOUTEPS) * NUM_TX_FIFOS)
+	else if(offset >= USB_OTG_DEV_OUT_EP_REG_OFFSET && offset < USB_OTG_DEV_OUT_EP_REG_OFFSET + sizeof(USB_OTG_OUTEPREGS) * NUM_TX_FIFOS)
 	{
 		val = atlantronic_usb_read_douteps(usb, offset - USB_OTG_DEV_OUT_EP_REG_OFFSET, size);
 	}
@@ -809,6 +761,7 @@ static int atlantronic_usb_init(SysBusDevice * dev)
 	qemu_mutex_init(&s->xfer_complete_mutex);
 	qemu_cond_init(&s->event_cond);
 	qemu_cond_init(&s->xfer_complete_cond);
+	qemu_cond_init(&s->setup_complete_cond);
 	qemu_thread_create(&s->rx_thread_id, atlantronic_usb_rx_thread, s, QEMU_THREAD_JOINABLE);
 
     return 0;

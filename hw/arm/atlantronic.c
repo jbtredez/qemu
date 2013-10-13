@@ -9,7 +9,7 @@
 
 #define USB_OTG_FS_BASE_ADDR      0x50000000
 
-static void atlantronic_foo_init(QEMUMachineInitArgs *args)
+static void atlantronic_init(QEMUMachineInitArgs *args)
 {
 	configure_icount("0");
 	system_clock_scale = 1;
@@ -116,11 +116,11 @@ static void atlantronic_foo_init(QEMUMachineInitArgs *args)
 
 	/*DeviceState* can1 = */sysbus_create_simple("atlantronic-can", CAN1_BASE, NULL);
 	// TODO irq can
-
+#endif
 	// usb
-	//DeviceState* usb = sysbus_create_simple("atlantronic-usb", USB_OTG_FS_BASE_ADDR, NULL);
-	//sysbus_connect_irq(SYS_BUS_DEVICE(usb), 0, pic[OTG_FS_IRQn]);
-
+	DeviceState* usb = sysbus_create_simple("atlantronic-usb", USB_OTG_FS_BASE_ADDR, NULL);
+	sysbus_connect_irq(SYS_BUS_DEVICE(usb), 0, pic[OTG_FS_IRQn]);
+#if 0
 	// modele
 	DeviceState* model = sysbus_create_simple("atlantronic-model", 0, NULL);
 	qdev_connect_gpio_out(tim2, 0, qdev_get_gpio_in(model, 0)); // encodeur 1 (droite)
@@ -151,17 +151,17 @@ static void atlantronic_foo_init(QEMUMachineInitArgs *args)
 #endif
 }
 
-static QEMUMachine atlantronic_foo =
+static QEMUMachine atlantronic_discovery =
 {
-    .name = "atlantronic-foo",
-    .desc = "Robot d'Atlantronic - carte foo",
-    .init = atlantronic_foo_init,
+    .name = "atlantronic",
+    .desc = "Robot d'Atlantronic - carte discovery",
+    .init = atlantronic_init,
 };
 
-static void atlantronic_init(void)
+static void atlantronic_init_discovery(void)
 {
-    qemu_register_machine(&atlantronic_foo);
+    qemu_register_machine(&atlantronic_discovery);
 }
 
-machine_init(atlantronic_init);
+machine_init(atlantronic_init_discovery);
 

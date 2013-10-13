@@ -6,7 +6,8 @@ obj-y += atlantronic.o atlantronic_gpio.o atlantronic_rcc.o atlantronic_tim.o
 obj-y += atlantronic_model.o atlantronic_tools.o
 #obj-y += atlantronic_adc.o atlantronic_usart.o atlantronic_hokuyo.o 
 #obj-y += atlantronic_can.o
-#obj-y += atlantronic_usb.o atlantronic_dma.o atlantronic_dma_chan.o 
+obj-y += atlantronic_usb.o
+# atlantronic_dma.o atlantronic_dma_chan.o
 
 obj-y += armv7m.o exynos4210.o pxa2xx.o pxa2xx_gpio.o pxa2xx_pic.o
 obj-y += omap1.o omap2.o strongarm.o
