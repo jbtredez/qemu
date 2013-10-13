@@ -428,7 +428,8 @@ static void cortex_m4_initfn(Object *obj)
     ARMCPU *cpu = ARM_CPU(obj);
     set_feature(&cpu->env, ARM_FEATURE_V7);
     set_feature(&cpu->env, ARM_FEATURE_M);
-    set_feature(&cpu->env, ARM_FEATURE_VFP3);
+    set_feature(&cpu->env, ARM_FEATURE_VFP4);
+    set_feature(&cpu->env, ARM_FEATURE_VFP_FP16);
     cpu->midr = 0x4114f250;
     cpu->id_pfr0 = 0x30;
     cpu->id_pfr1 = 0x200;
