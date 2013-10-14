@@ -6,8 +6,26 @@
 enum
 {
 	// TODO irq can
+	ATLANTRONIC_CAN_IRQ_TX0,
 	ATLANTRONIC_CAN_IRQ_MAX,
 };
+
+struct can_msg
+{
+	uint32_t id; //!< 11 bits ou 29 bits si étendue
+	// accès aux données par tableau ou par 2 mots de 32 bits (pour le driver)
+	union
+	{
+		uint8_t data[8]; //!< données (de 0 à  8 octets)
+		struct {
+			uint32_t low;
+			uint32_t high;
+		} _data;
+	};
+	unsigned char size; //!< taille
+	unsigned char format; //!< format (standard ou étendu)
+	unsigned char type; //!< type
+} __attribute__((packed));
 
 struct atlantronic_can_state
 {
@@ -17,55 +35,94 @@ struct atlantronic_can_state
 	qemu_irq irq[ATLANTRONIC_CAN_IRQ_MAX];
 };
 
+static void atlantronic_can_tx(struct atlantronic_can_state* s, hwaddr offset, uint64_t val)
+{
+	int i = offset / sizeof(CAN_TxMailBox_TypeDef);
+
+	if(i >= 3)
+	{
+		printf("Error : CAN forbiden sTxMailBox write acces offset %lx (=> i = %d)\n", offset, i);
+		return;
+	}
+
+	switch(offset % sizeof(CAN_TxMailBox_TypeDef))
+	{
+		case offsetof(CAN_TxMailBox_TypeDef, TIR):
+			if( val & CAN_TI0R_TXRQ)
+			{
+				// envoi d'un message
+				struct can_msg msg;
+				if(val & 0x04)
+				{
+					// CAN_EXTENDED_FORMAT
+					msg.id = val >> 3;
+				}
+				else
+				{
+					// CAN_STANDARD_FORMAT
+					msg.id = val >> 21;
+				}
+				msg.size = s->can.sTxMailBox[i].TDTR & CAN_TDT0R_DLC;
+				msg._data.low = s->can.sTxMailBox[i].TDLR;
+				msg._data.high = s->can.sTxMailBox[i].TDHR;
+
+				// transmission ok
+				// TODO on suppose i == 0
+				s->can.TSR |= CAN_TSR_RQCP0 | CAN_TSR_TXOK0;
+				qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_TX0], 1);
+#if 1
+				// debug
+				char buffer[1024];
+				int i;
+				int res = snprintf(buffer, sizeof(buffer), "CAN msg id %d size %d data ", msg.id, msg.size);
+				for(i=0; i < msg.size && res > 0; i++)
+				{
+					res += snprintf(buffer + res, sizeof(buffer) - res, " %2.2x", msg.data[i]);
+				}
+				printf("%s\n", buffer);
+#endif
+			}
+			s->can.sTxMailBox[i].TIR = val;
+			break;
+		W_ACCESS(CAN_TxMailBox_TypeDef, s->can.sTxMailBox[i], TDTR, val);
+		W_ACCESS(CAN_TxMailBox_TypeDef, s->can.sTxMailBox[i], TDLR, val);
+		W_ACCESS(CAN_TxMailBox_TypeDef, s->can.sTxMailBox[i], TDHR, val);
+		default:
+			printf("Error : CAN forbiden sTxMailBox write acces offset %lx (=> i = %d)\n", offset, i);
+			return;
+	}
+}
+
 static void atlantronic_can_write(void *opaque, hwaddr offset, uint64_t val, unsigned size)
 {
 	struct atlantronic_can_state* s = opaque;
 
 	switch(offset)
 	{
-		case offsetof(CAN_TypeDef, MCR):
-			s->can.MCR = val;
-			break;
-		case offsetof(CAN_TypeDef, MSR):
-			s->can.MCR = val;
-			break;
+		W_ACCESS(CAN_TypeDef, s->can, MCR, val);
+		W_ACCESS(CAN_TypeDef, s->can, MSR, val);
 		case offsetof(CAN_TypeDef, TSR):
-			s->can.TSR = val;
+			if(val & CAN_TSR_RQCP0)
+			{
+				s->can.TSR &= ~CAN_TSR_RQCP0;
+				qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_TX0], 0);
+			}
 			break;
-		case offsetof(CAN_TypeDef, RF0R):
-			s->can.RF0R = val;
-			break;
-		case offsetof(CAN_TypeDef, RF1R):
-			s->can.RF1R = val;
-			break;
-		case offsetof(CAN_TypeDef, IER):
-			s->can.IER = val;
-			break;
-		case offsetof(CAN_TypeDef, ESR):
-			s->can.ESR = val;
-			break;
-		case offsetof(CAN_TypeDef, BTR):
-			s->can.BTR = val;
-			break;
-		case offsetof(CAN_TypeDef, FMR):
-			s->can.FMR = val;
-			break;
-		case offsetof(CAN_TypeDef, FM1R):
-			s->can.FM1R = val;
-			break;
-		case offsetof(CAN_TypeDef, FS1R):
-			s->can.FS1R = val;
-			break;
-		case offsetof(CAN_TypeDef, FFA1R):
-			s->can.FFA1R = val;
-			break;
-		case offsetof(CAN_TypeDef, FA1R):
-			s->can.FA1R = val;
-			break;
+		W_ACCESS(CAN_TypeDef, s->can, RF0R, val);
+		W_ACCESS(CAN_TypeDef, s->can, RF1R, val);
+		W_ACCESS(CAN_TypeDef, s->can, IER, val);
+		W_ACCESS(CAN_TypeDef, s->can, ESR, val);
+		W_ACCESS(CAN_TypeDef, s->can, BTR, val);
+		W_ACCESS(CAN_TypeDef, s->can, FMR, val);
+		W_ACCESS(CAN_TypeDef, s->can, FM1R, val);
+		W_ACCESS(CAN_TypeDef, s->can, FS1R, val);
+		W_ACCESS(CAN_TypeDef, s->can, FFA1R, val);
+		W_ACCESS(CAN_TypeDef, s->can, FA1R, val);
 		default:
 			if(offset >= offsetof(CAN_TypeDef, sTxMailBox[0]) && offset < offsetof(CAN_TypeDef, sTxMailBox[0]) + sizeof(s->can.sTxMailBox))
 			{
-				// TODO tx mailbox
+				// tx mailbox
+				atlantronic_can_tx(s, offset - offsetof(CAN_TypeDef, sTxMailBox[0]), val);
 			}
 			else if(offset >= offsetof(CAN_TypeDef, sFIFOMailBox[0]) && offset < offsetof(CAN_TypeDef, sFIFOMailBox[0]) + sizeof(s->can.sFIFOMailBox))
 			{
@@ -90,45 +147,19 @@ static uint64_t atlantronic_can_read(void *opaque, hwaddr offset, unsigned size)
 
 	switch(offset)
 	{
-		case offsetof(CAN_TypeDef, MCR):
-			res = s->can.MCR;
-			break;
-		case offsetof(CAN_TypeDef, MSR):
-			res = s->can.MSR;
-			break;
-		case offsetof(CAN_TypeDef, TSR):
-			res = s->can.TSR;
-			break;
-		case offsetof(CAN_TypeDef, RF0R):
-			res = s->can.RF0R;
-			break;
-		case offsetof(CAN_TypeDef, RF1R):
-			res = s->can.RF1R;
-			break;
-		case offsetof(CAN_TypeDef, IER):
-			res = s->can.IER;
-			break;
-		case offsetof(CAN_TypeDef, ESR):
-			res = s->can.ESR;
-			break;
-		case offsetof(CAN_TypeDef, BTR):
-			res = s->can.BTR;
-			break;
-		case offsetof(CAN_TypeDef, FMR):
-			res = s->can.FMR;
-			break;
-		case offsetof(CAN_TypeDef, FM1R):
-			res = s->can.FM1R;
-			break;
-		case offsetof(CAN_TypeDef, FS1R):
-			res = s->can.FS1R;
-			break;
-		case offsetof(CAN_TypeDef, FFA1R):
-			res = s->can.FFA1R;
-			break;
-		case offsetof(CAN_TypeDef, FA1R):
-			res = s->can.FA1R;
-			break;
+		R_ACCESS(CAN_TypeDef, s->can, MCR, res);
+		R_ACCESS(CAN_TypeDef, s->can, MSR, res);
+		R_ACCESS(CAN_TypeDef, s->can, TSR, res);
+		R_ACCESS(CAN_TypeDef, s->can, RF0R, res);
+		R_ACCESS(CAN_TypeDef, s->can, RF1R, res);
+		R_ACCESS(CAN_TypeDef, s->can, IER, res);
+		R_ACCESS(CAN_TypeDef, s->can, ESR, res);
+		R_ACCESS(CAN_TypeDef, s->can, BTR, res);
+		R_ACCESS(CAN_TypeDef, s->can, FMR, res);
+		R_ACCESS(CAN_TypeDef, s->can, FM1R, res);
+		R_ACCESS(CAN_TypeDef, s->can, FS1R, res);
+		R_ACCESS(CAN_TypeDef, s->can, FFA1R, res);
+		R_ACCESS(CAN_TypeDef, s->can, FA1R, res);
 		default:
 			if(offset >= offsetof(CAN_TypeDef, sTxMailBox[0]) && offset < offsetof(CAN_TypeDef, sTxMailBox[0]) + sizeof(s->can.sTxMailBox))
 			{
@@ -206,6 +237,7 @@ static int atlantronic_can_init(SysBusDevice * dev)
 
 	memory_region_init_io(&s->iomem, OBJECT(s), &atlantronic_can_ops, s, "atlantronic_can", 0x400);
 	sysbus_init_mmio(dev, &s->iomem);
+	sysbus_init_irq(dev, &s->irq[ATLANTRONIC_CAN_IRQ_TX0]);
 
 	atlantronic_can_reset(&s->can);
 
