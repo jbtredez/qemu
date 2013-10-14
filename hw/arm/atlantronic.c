@@ -113,10 +113,10 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	DeviceState* usart3 = sysbus_create_simple("atlantronic-usart", USART3_BASE, NULL);
 	qdev_connect_gpio_out(usart3, 0, pic[USART3_IRQn]);  // usart3 -> it hw
 	qdev_connect_gpio_out(usart3, 1, qdev_get_gpio_in(dma1_chan3, 0));  // usart3 -> dma1_chan3 (rx)
-
-	/*DeviceState* can1 = */sysbus_create_simple("atlantronic-can", CAN1_BASE, NULL);
-	// TODO irq can
 #endif
+	DeviceState* can1 = sysbus_create_simple("atlantronic-can", CAN1_BASE, NULL);
+	sysbus_connect_irq(SYS_BUS_DEVICE(can1), 0, pic[CAN1_TX_IRQn]);
+
 	// usb
 	DeviceState* usb = sysbus_create_simple("atlantronic-usb", USB_OTG_FS_BASE_ADDR, NULL);
 	sysbus_connect_irq(SYS_BUS_DEVICE(usb), 0, pic[OTG_FS_IRQn]);
