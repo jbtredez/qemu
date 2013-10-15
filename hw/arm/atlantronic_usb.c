@@ -149,37 +149,43 @@ static void* atlantronic_usb_rx_thread(void* arg)
 		usb->event_start = (usb->event_start + 1) % EVENT_NUM;
 		qemu_mutex_unlock(&usb->event_mutex);
 
-		USB_OTG_GRXFSTS_TypeDef grxstsp;
+		USB_OTG_DRXSTS_TypeDef grxstsp;
 		grxstsp.d32 = usb->gregs.GRXSTSP;
 		if(ev.type == ATLANTRONIC_EVENT_DATA)
 		{
 			grxstsp.b.pktsts = 2;
 		}
+		else
+		{
+			grxstsp.b.pktsts = 6;  // SETUP data packet received (PKTSTS)
+		}
 
 		atlantronic_usb_write_rx_fifo0_data(usb, ev.data, ev.length);
-		grxstsp.b.chnum = ev.ep;
+		grxstsp.b.epnum = ev.ep;
 		grxstsp.b.bcnt = ev.length;
 
 		usb->gregs.GRXSTSP = grxstsp.d32;
+		usb->douteps[ev.ep].DOEPINT = 0x00;
 
 		qemu_mutex_lock(&usb->xfer_complete_mutex);
 		usb->gregs.GINTSTS |= 0x10;          // IT RX fifo
-		usb->gregs.GINTSTS |= 0x80000;       // IT out EP
 		qemu_set_irq(usb->irq, 1);
 		qemu_cond_wait(&usb->xfer_complete_cond, &usb->xfer_complete_mutex);
 
-		if(ev.type == ATLANTRONIC_EVENT_SETUP && ev.ep == 0)
+		if(ev.type == ATLANTRONIC_EVENT_DATA)
 		{
-			grxstsp.d32 = usb->gregs.GRXSTSP;
-			grxstsp.b.pktsts = 6;  // SETUP data packet received (PKTSTS)
-			usb->gregs.GRXSTSP = grxstsp.d32;
+			// transfert data ok
+			usb->douteps[ev.ep].DOEPINT = 0x01;
+		}
+		else
+		{
 			// setup done
-			usb->douteps[0].DOEPINT = 0x08;    // EP0 -> STUP (SETUP phase done)
-			usb->gregs.GINTSTS |= 0x80000;     // IT out EP
-			qemu_set_irq(usb->irq, 1);
-			qemu_cond_wait(&usb->setup_complete_cond, &usb->xfer_complete_mutex);
+			usb->douteps[ev.ep].DOEPINT = 0x08;    // EP0 -> STUP (SETUP phase done)
 		}
 
+		usb->gregs.GINTSTS |= 0x80000;     // IT out EP
+		qemu_set_irq(usb->irq, 1);
+		qemu_cond_wait(&usb->setup_complete_cond, &usb->xfer_complete_mutex);
 		qemu_mutex_unlock(&usb->xfer_complete_mutex);
 	}
 
@@ -194,6 +200,16 @@ static uint32_t atlantronic_usb_read32_fifo(struct atlantronic_usb_state *usb, i
 	if( usb->fifo_start[fifo_id] >= USB_OTG_DATA_FIFO_SIZE/4)
 	{
 		usb->fifo_start[fifo_id] = 0;
+	}
+
+	if( usb->fifo_start[fifo_id] == usb->fifo_end[fifo_id])
+	{
+		// flag xfercompl
+		qemu_mutex_lock(&usb->xfer_complete_mutex);
+		usb->gregs.GINTSTS &= ~0x10;          // IT RX fifo
+		//qemu_set_irq(usb->irq, 0);
+		qemu_cond_signal(&usb->xfer_complete_cond);
+		qemu_mutex_unlock(&usb->xfer_complete_mutex);
 	}
 	return data;
 }
@@ -529,25 +545,14 @@ static void atlantronic_usb_write_douteps(struct atlantronic_usb_state *usb, hwa
 			doepint.d32 = val;
 			if(val != 0xff)
 			{
-				if(doepint.b.xfercompl)
-				{
-					// flag xfercompl
-					qemu_mutex_lock(&usb->xfer_complete_mutex);
-					usb->gregs.GINTSTS &= ~0x10;          // IT RX fifo
-					usb->gregs.GINTSTS &= ~0x80000;       // IT out EP
-					qemu_set_irq(usb->irq, 0);
-					qemu_cond_signal(&usb->xfer_complete_cond);
-					qemu_mutex_unlock(&usb->xfer_complete_mutex);
-				}
-				if(doepint.b.setup)
+				if(doepint.b.xfercompl || doepint.b.setup)
 				{
 					qemu_mutex_lock(&usb->xfer_complete_mutex);
 					usb->gregs.GINTSTS &= ~0x80000;       // IT out EP
-					//printf("[QEMU] paquet setup ok\n");
+					//printf("[QEMU] paquet ok\n");
 					qemu_set_irq(usb->irq, 0);
 					qemu_cond_signal(&usb->setup_complete_cond);
 					qemu_mutex_unlock(&usb->xfer_complete_mutex);
-					doepint.b.xfercompl = 1;
 				}
 			}
 			usb->douteps[i].DOEPINT = doepint.d32;
