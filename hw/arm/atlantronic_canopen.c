@@ -3,12 +3,6 @@
 
 #define CANOPEN_MAX_NODE          128
 
-#define CANOPEN_RX_PDO1          0x180
-#define CANOPEN_RX_PDO2          0x280
-#define CANOPEN_RX_PDO3          0x380
-#define CANOPEN_SDO_RES          0x580
-#define CANOPEN_BOOTUP           0x700
-
 enum
 {
 	NMT_OPERATIONAL        =  0x01,
@@ -49,7 +43,7 @@ void atlantronic_canopen_tx(void* can_interface, struct can_msg msg)
 #if 1
 	// debug
 	char buffer[1024];
-	int res = snprintf(buffer, sizeof(buffer), "\r[qemu] CAN msg id %d size %d data ", msg.id, msg.size);
+	int res = snprintf(buffer, sizeof(buffer), "\r[qemu] CAN msg id %x size %d data ", msg.id, msg.size);
 	for(i=0; i < msg.size && res > 0; i++)
 	{
 		res += snprintf(buffer + res, sizeof(buffer) - res, " %2.2x", msg.data[i]);
@@ -57,37 +51,10 @@ void atlantronic_canopen_tx(void* can_interface, struct can_msg msg)
 	printf("%s\n", buffer);
 #endif
 
-	if( msg.id > 0x380 && msg.id < 0x400)
-	{
-		// PDO 3
-		nodeid = msg.id - 0x380;
-		type = CANOPEN_RX_PDO3;
-	}
-	else if( msg.id > 0x280 && msg.id < 0x300)
-	{
-		// PDO 2
-		nodeid = msg.id - 0x280;
-		type = CANOPEN_RX_PDO2;
-	}
-	else if( msg.id > 0x180 && msg.id < 0x200)
-	{
-		// PDO 1
-		nodeid = msg.id - 0x180;
-		type = CANOPEN_RX_PDO1;
-	}
-	else if(msg.id > 0x580 && msg.id < 0x600)
-	{
-		// SDO
-		nodeid = msg.id - 0x580;
-		type = CANOPEN_SDO_RES;
-	}
-	else if(msg.id > 0x700 && msg.id < 0x780)
-	{
-		// bootup
-		nodeid = msg.id - 0x700;
-		type = CANOPEN_BOOTUP;
-	}
-	else if( msg.id == 0)
+	nodeid = msg.id & 0x7F;
+	type = msg.id & ~0x7f;
+
+	if( msg.id == 0)
 	{
 		// NMT
 		int new_state = msg.data[0];
@@ -116,12 +83,12 @@ void atlantronic_canopen_tx(void* can_interface, struct can_msg msg)
 		return;
 	}
 
-	if(nodeid > 0 && nodeid < CANOPEN_MAX_NODE)
+	if(nodeid > 0)
 	{
 		if(atlantronic_canopen_node[nodeid].nodeid == nodeid)
 		{
 			// noeud parametre
-			atlantronic_canopen_node[nodeid].callback(atlantronic_canopen_node[nodeid].opaque, msg, type);
+			atlantronic_canopen_node[nodeid].callback(can_interface, atlantronic_canopen_node[nodeid].opaque, msg, type);
 		}
 	}
 }
@@ -141,7 +108,6 @@ void atlantronic_canopen_set_nmt(void* can_interface, int nodeid, uint8_t new_st
 		{
 			atlantronic_canopen_node[nodeid].can_interface = can_interface;
 			// envoi du bootup
-			printf("nodeid base %x id %x\n", nodeid, atlantronic_canopen_node[nodeid].nodeid);
 			struct can_msg msg;
 			msg.id = 0x700 + (uint32_t)nodeid;
 			msg.size = 0;
