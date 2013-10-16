@@ -29,7 +29,7 @@ struct atlantronic_can_state
 	qemu_irq irq[ATLANTRONIC_CAN_IRQ_MAX];
 };
 
-static void atlantronic_can_tx(struct atlantronic_can_state* s, hwaddr offset, uint64_t val)
+static void atlantronic_can_write_tx_mailbox(struct atlantronic_can_state* s, hwaddr offset, uint64_t val)
 {
 	int i = offset / sizeof(CAN_TxMailBox_TypeDef);
 
@@ -78,7 +78,7 @@ static void atlantronic_can_tx(struct atlantronic_can_state* s, hwaddr offset, u
 	}
 }
 
-static uint32_t atlantronic_can_rx_fifo(struct atlantronic_can_state* s, hwaddr offset)
+static uint32_t atlantronic_can_read_rx_fifo(struct atlantronic_can_state* s, hwaddr offset)
 {
 	uint32_t val = 0;
 	int i = offset / sizeof(CAN_FIFOMailBox_TypeDef);
@@ -97,6 +97,30 @@ static uint32_t atlantronic_can_rx_fifo(struct atlantronic_can_state* s, hwaddr 
 		R_ACCESS(CAN_FIFOMailBox_TypeDef, s->can.sFIFOMailBox[i], RDHR, val);
 		default:
 			printf("Error : CAN forbiden sFIFOMailBox read acces offset %lx (=> i = %d)\n", offset, i);
+	}
+
+	return val;
+}
+
+static uint32_t atlantronic_can_read_tx_mailbox(struct atlantronic_can_state* s, hwaddr offset)
+{
+	uint32_t val = 0;
+	int i = offset / sizeof(CAN_TxMailBox_TypeDef);
+
+	if(i >= 3)
+	{
+		printf("Error : CAN forbiden sTxMailBox read acces offset %lx (=> i = %d)\n", offset, i);
+		return val;
+	}
+
+	switch(offset % sizeof(CAN_TxMailBox_TypeDef))
+	{
+		R_ACCESS(CAN_TxMailBox_TypeDef, s->can.sTxMailBox[i], TIR, val);
+		R_ACCESS(CAN_TxMailBox_TypeDef, s->can.sTxMailBox[i], TDTR, val);
+		R_ACCESS(CAN_TxMailBox_TypeDef, s->can.sTxMailBox[i], TDLR, val);
+		R_ACCESS(CAN_TxMailBox_TypeDef, s->can.sTxMailBox[i], TDHR, val);
+		default:
+			printf("Error : CAN forbiden sTxMailBox read acces offset %lx (=> i = %d)\n", offset, i);
 	}
 
 	return val;
@@ -140,7 +164,7 @@ static void atlantronic_can_write(void *opaque, hwaddr offset, uint64_t val, uns
 			if(offset >= offsetof(CAN_TypeDef, sTxMailBox[0]) && offset < offsetof(CAN_TypeDef, sTxMailBox[0]) + sizeof(s->can.sTxMailBox))
 			{
 				// tx mailbox
-				atlantronic_can_tx(s, offset - offsetof(CAN_TypeDef, sTxMailBox[0]), val);
+				atlantronic_can_write_tx_mailbox(s, offset - offsetof(CAN_TypeDef, sTxMailBox[0]), val);
 			}
 			else if(offset >= offsetof(CAN_TypeDef, sFIFOMailBox[0]) && offset < offsetof(CAN_TypeDef, sFIFOMailBox[0]) + sizeof(s->can.sFIFOMailBox))
 			{
@@ -182,11 +206,12 @@ static uint64_t atlantronic_can_read(void *opaque, hwaddr offset, unsigned size)
 			if(offset >= offsetof(CAN_TypeDef, sTxMailBox[0]) && offset < offsetof(CAN_TypeDef, sTxMailBox[0]) + sizeof(s->can.sTxMailBox))
 			{
 				// TODO tx mailbox
+				res = atlantronic_can_read_tx_mailbox(s, offset - offsetof(CAN_TypeDef, sTxMailBox[0]));
 			}
 			else if(offset >= offsetof(CAN_TypeDef, sFIFOMailBox[0]) && offset < offsetof(CAN_TypeDef, sFIFOMailBox[0]) + sizeof(s->can.sFIFOMailBox))
 			{
 				// rx fifo mailbox
-				res = atlantronic_can_rx_fifo(s, offset - offsetof(CAN_TypeDef, sFIFOMailBox[0]));
+				res = atlantronic_can_read_rx_fifo(s, offset - offsetof(CAN_TypeDef, sFIFOMailBox[0]));
 			}
 			else if(offset >= offsetof(CAN_TypeDef, sFilterRegister[0]) && offset < offsetof(CAN_TypeDef, sFilterRegister[0]) + sizeof(s->can.sFilterRegister))
 			{
