@@ -10,10 +10,10 @@ void atlantronic_can_motor_callback(void* can_interface, void* opaque, struct ca
 
 	switch(type)
 	{
-		case CANOPEN_SDO_RX:
+		case CANOPEN_SDO_REQ:
 			// on repond ok a tout les sdo
-			rx_msg.id = CANOPEN_SDO_RES + motor->nodeid;
-			rx_msg.data[0] = 60;
+			rx_msg.id = 0x80 * CANOPEN_SDO_RES + motor->nodeid;
+			rx_msg.data[0] = 0x60;
 			rx_msg.data[1] = msg.data[1];
 			rx_msg.data[2] = msg.data[2];
 			rx_msg.data[3] = msg.data[3];

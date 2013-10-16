@@ -5,12 +5,21 @@
 
 enum
 {
-	CANOPEN_RX_PDO1         = 0x180,
-	CANOPEN_RX_PDO2         = 0x280,
-	CANOPEN_RX_PDO3         = 0x380,
-	CANOPEN_SDO_RES         = 0x580,
-	CANOPEN_SDO_RX          = 0x600,
-	CANOPEN_BOOTUP          = 0x700,
+	CANOPEN_NMT = 0,
+	CANOPEN_SYNC,
+	CANOPEN_EMERGENCY,
+	CANOPEN_RX_PDO1,
+	CANOPEN_TX_PDO1,
+	CANOPEN_RX_PDO2,
+	CANOPEN_TX_PDO2,
+	CANOPEN_RX_PDO3,
+	CANOPEN_TX_PDO3,
+	CANOPEN_RX_PDO4,
+	CANOPEN_TX_PDO4,
+	CANOPEN_SDO_RES,
+	CANOPEN_SDO_REQ,
+	CANOPEN_RESERVED_13,
+	CANOPEN_BOOTUP,
 };
 
 typedef void (*atlantronic_canopen_callback)(void* can_interface, void* opaque, struct can_msg msg, int type);
