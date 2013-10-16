@@ -3,9 +3,9 @@
 #include "hw/arm/arm.h"
 #include "sysemu/char.h"
 #include "atlantronic_cpu.h"
-#include "kernel/driver/usb/stm32f1xx/otgd_fs_regs.h"
 #include "atlantronic_model.h"
 #include "atlantronic_tools.h"
+#include "atlantronic_can_motor.h"
 
 #include "kernel/robot_parameters.h"
 #include "foo/control/control.h"
@@ -61,13 +61,14 @@ struct atlantronic_model_state
 	CharDriverState* chr;
 	int32_t pwm_dir[PWM_NUM];
 	float enc[ENCODER_NUM];
+	struct atlantronic_can_motor can_motor[6];
 	struct atlantronic_motor motor[PWM_NUM];
 
 	struct atlantronic_vect3 pos;
 	float v;           //!< vitesse linéaire du robot (mm/s)
 	float w;           //!< vitesse angulaire du robot (rd/s)
 };
-
+#if 0
 static void atlantronic_motor_init(struct atlantronic_motor* motor)
 {
 	motor->pwm  = 0;
@@ -178,10 +179,11 @@ static void atlantronic_motor_cancel_update(struct atlantronic_motor* motor)
 	motor->w = motor->w_old;
 	motor->theta = motor->theta_old;
 }
-
+#endif
 static void atlantronic_model_reset(struct atlantronic_model_state* s)
 {
 	int i = 0;
+#if 0
 	for(i = 0; i < PWM_NUM; i++)
 	{
 		s->pwm_dir[i] = 0;
@@ -200,8 +202,19 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	s->pos.sa = sin(s->pos.alpha);
 	s->v = 0;
 	s->w = 0;
+#endif
+	s->can_motor[0].nodeid = 0x20;
+	s->can_motor[1].nodeid = 0x21;
+	s->can_motor[2].nodeid = 0x22;
+	s->can_motor[3].nodeid = 0x23;
+	s->can_motor[4].nodeid = 0x24;
+	s->can_motor[5].nodeid = 0x25;
+	for(i = 0; i < sizeof(s->can_motor) / sizeof(s->can_motor[0]); i++)
+	{
+		atlantronic_can_motor_connect(&s->can_motor[i]);
+	}
 }
-
+#if 0
 static void atlantronic_model_compute(struct atlantronic_model_state* s)
 {
 	int i = 0;
@@ -325,7 +338,7 @@ static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 		s->pwm_dir[id] = level;
 	}
 }
-
+#endif
 static int atlantronic_model_can_receive(void *opaque)
 {
 	return sizeof(struct atlantronic_model_rx_event);
@@ -373,8 +386,8 @@ static int atlantronic_model_init(SysBusDevice * dev)
 
 	sysbus_init_mmio(dev, &s->iomem);
 
-	qdev_init_gpio_out(DEVICE(dev), s->irq, MODEL_IRQ_OUT_NUM);
-	qdev_init_gpio_in(DEVICE(dev), atlantronic_model_in_recv, IRQ_IN_NUM);
+	//qdev_init_gpio_out(DEVICE(dev), s->irq, MODEL_IRQ_OUT_NUM);
+	//qdev_init_gpio_in(DEVICE(dev), atlantronic_model_in_recv, IRQ_IN_NUM);
 
 	s->chr = qemu_chr_find("foo_model");
 	if( s->chr == NULL)
