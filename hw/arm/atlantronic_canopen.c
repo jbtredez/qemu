@@ -40,7 +40,7 @@ void atlantronic_canopen_tx(void* can_interface, struct can_msg msg)
 	int type = 0;
 	int i;
 
-#if 1
+#if 0
 	// debug
 	char buffer[1024];
 	int res = snprintf(buffer, sizeof(buffer), "\r[qemu] CAN msg id %x size %d data ", msg.id, msg.size);
@@ -51,12 +51,17 @@ void atlantronic_canopen_tx(void* can_interface, struct can_msg msg)
 	printf("%s\n", buffer);
 #endif
 
+	type = msg.id >> 7;
 	nodeid = msg.id & 0x7F;
-	type = msg.id & ~0x7f;
 
-	if( msg.id == 0)
+	if( type == CANOPEN_NMT )
 	{
-		// NMT
+		if( nodeid != 0)
+		{
+			// TODO erreur;
+			return;
+		}
+
 		int new_state = msg.data[0];
 		// on regarde si c'est un etat valide
 		if( new_state == NMT_OPERATIONAL ||
