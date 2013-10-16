@@ -2,36 +2,30 @@
 #include "hw/boards.h"
 #include "hw/arm/arm.h"
 #include "atlantronic_cpu.h"
+#include "atlantronic_can.h"
+#include "atlantronic_canopen.h"
+
+#define EVENT_NUM                  1024
 
 enum
 {
-	// TODO irq can
 	ATLANTRONIC_CAN_IRQ_TX0,
+	ATLANTRONIC_CAN_IRQ_RX0,
 	ATLANTRONIC_CAN_IRQ_MAX,
 };
-
-struct can_msg
-{
-	uint32_t id; //!< 11 bits ou 29 bits si étendue
-	// accès aux données par tableau ou par 2 mots de 32 bits (pour le driver)
-	union
-	{
-		uint8_t data[8]; //!< données (de 0 à  8 octets)
-		struct {
-			uint32_t low;
-			uint32_t high;
-		} _data;
-	};
-	unsigned char size; //!< taille
-	unsigned char format; //!< format (standard ou étendu)
-	unsigned char type; //!< type
-} __attribute__((packed));
 
 struct atlantronic_can_state
 {
 	SysBusDevice busdev;
 	MemoryRegion iomem;
 	CAN_TypeDef can;
+	QemuMutex event_mutex;
+	QemuCond event_cond;
+	QemuCond event_rx_complete_cond;
+	QemuThread rx_thread_id;
+	uint32_t event_start;
+	uint32_t event_end;
+	struct can_msg event[EVENT_NUM];
 	qemu_irq irq[ATLANTRONIC_CAN_IRQ_MAX];
 };
 
@@ -70,17 +64,8 @@ static void atlantronic_can_tx(struct atlantronic_can_state* s, hwaddr offset, u
 				// TODO on suppose i == 0
 				s->can.TSR |= CAN_TSR_RQCP0 | CAN_TSR_TXOK0;
 				qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_TX0], 1);
-#if 1
-				// debug
-				char buffer[1024];
-				int i;
-				int res = snprintf(buffer, sizeof(buffer), "CAN msg id %d size %d data ", msg.id, msg.size);
-				for(i=0; i < msg.size && res > 0; i++)
-				{
-					res += snprintf(buffer + res, sizeof(buffer) - res, " %2.2x", msg.data[i]);
-				}
-				printf("%s\n", buffer);
-#endif
+
+				atlantronic_canopen_tx(s, msg);
 			}
 			s->can.sTxMailBox[i].TIR = val;
 			break;
@@ -91,6 +76,30 @@ static void atlantronic_can_tx(struct atlantronic_can_state* s, hwaddr offset, u
 			printf("Error : CAN forbiden sTxMailBox write acces offset %lx (=> i = %d)\n", offset, i);
 			return;
 	}
+}
+
+static uint32_t atlantronic_can_rx_fifo(struct atlantronic_can_state* s, hwaddr offset)
+{
+	uint32_t val = 0;
+	int i = offset / sizeof(CAN_FIFOMailBox_TypeDef);
+
+	if(i >= 3)
+	{
+		printf("Error : CAN forbiden sFIFOMailBox read acces offset %lx (=> i = %d)\n", offset, i);
+		return val;
+	}
+
+	switch(offset % sizeof(CAN_FIFOMailBox_TypeDef))
+	{
+		R_ACCESS(CAN_FIFOMailBox_TypeDef, s->can.sFIFOMailBox[i], RIR, val);
+		R_ACCESS(CAN_FIFOMailBox_TypeDef, s->can.sFIFOMailBox[i], RDTR, val);
+		R_ACCESS(CAN_FIFOMailBox_TypeDef, s->can.sFIFOMailBox[i], RDLR, val);
+		R_ACCESS(CAN_FIFOMailBox_TypeDef, s->can.sFIFOMailBox[i], RDHR, val);
+		default:
+			printf("Error : CAN forbiden sFIFOMailBox read acces offset %lx (=> i = %d)\n", offset, i);
+	}
+
+	return val;
 }
 
 static void atlantronic_can_write(void *opaque, hwaddr offset, uint64_t val, unsigned size)
@@ -108,7 +117,16 @@ static void atlantronic_can_write(void *opaque, hwaddr offset, uint64_t val, uns
 				qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_TX0], 0);
 			}
 			break;
-		W_ACCESS(CAN_TypeDef, s->can, RF0R, val);
+		case offsetof(CAN_TypeDef, RF0R):
+			if(val & CAN_RF0R_RFOM0)
+			{
+				s->can.TSR &= ~CAN_RF0R_RFOM0;
+				qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_RX0], 0);
+				qemu_mutex_lock(&s->event_mutex);
+				qemu_cond_signal(&s->event_rx_complete_cond);
+				qemu_mutex_unlock(&s->event_mutex);
+			}
+			break;
 		W_ACCESS(CAN_TypeDef, s->can, RF1R, val);
 		W_ACCESS(CAN_TypeDef, s->can, IER, val);
 		W_ACCESS(CAN_TypeDef, s->can, ESR, val);
@@ -167,7 +185,8 @@ static uint64_t atlantronic_can_read(void *opaque, hwaddr offset, unsigned size)
 			}
 			else if(offset >= offsetof(CAN_TypeDef, sFIFOMailBox[0]) && offset < offsetof(CAN_TypeDef, sFIFOMailBox[0]) + sizeof(s->can.sFIFOMailBox))
 			{
-				// TODO rx fifo mailbox
+				// rx fifo mailbox
+				res = atlantronic_can_rx_fifo(s, offset - offsetof(CAN_TypeDef, sFIFOMailBox[0]));
 			}
 			else if(offset >= offsetof(CAN_TypeDef, sFilterRegister[0]) && offset < offsetof(CAN_TypeDef, sFilterRegister[0]) + sizeof(s->can.sFilterRegister))
 			{
@@ -181,6 +200,54 @@ static uint64_t atlantronic_can_read(void *opaque, hwaddr offset, unsigned size)
 	}
 
 	return res;	
+}
+
+void atlantronic_can_rx(void *opaque, struct can_msg msg)
+{
+	struct atlantronic_can_state* s = opaque;
+	qemu_mutex_lock(&s->event_mutex);
+	if((s->event_end + 1) % EVENT_NUM != s->event_start)
+	{
+		// il reste de la place
+		s->event[s->event_end] = msg;
+		s->event_end = (s->event_end + 1) % EVENT_NUM;
+	}
+	qemu_cond_signal(&s->event_cond);
+	qemu_mutex_unlock(&s->event_mutex);
+}
+
+static void* atlantronic_can_rx_thread(void* arg)
+{
+	struct atlantronic_can_state* s = arg;
+	struct can_msg msg;
+
+	while(1)
+	{
+		qemu_mutex_lock(&s->event_mutex);
+
+		if(s->event_start == s->event_end)
+		{
+			qemu_cond_wait(&s->event_cond, &s->event_mutex);
+		}
+		msg = s->event[s->event_start];
+		s->event_start = (s->event_start + 1) % EVENT_NUM;
+		qemu_mutex_unlock(&s->event_mutex);
+
+		s->can.sFIFOMailBox[0].RIR = (unsigned int)(msg.id << 21);
+
+		s->can.sFIFOMailBox[0].RDLR = msg._data.low;
+		s->can.sFIFOMailBox[0].RDHR = msg._data.high;
+
+		s->can.sFIFOMailBox[0].RDTR = msg.size & 0x0f;
+		s->can.RF0R |= CAN_RF0R_FMP0;
+		qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_RX0], 1);
+
+		qemu_mutex_lock(&s->event_mutex);
+		qemu_cond_wait(&s->event_rx_complete_cond, &s->event_mutex);
+		qemu_mutex_unlock(&s->event_mutex);
+	}
+
+	return 0;
 }
 
 static void atlantronic_can_reset(CAN_TypeDef* can)
@@ -238,8 +305,15 @@ static int atlantronic_can_init(SysBusDevice * dev)
 	memory_region_init_io(&s->iomem, OBJECT(s), &atlantronic_can_ops, s, "atlantronic_can", 0x400);
 	sysbus_init_mmio(dev, &s->iomem);
 	sysbus_init_irq(dev, &s->irq[ATLANTRONIC_CAN_IRQ_TX0]);
+	sysbus_init_irq(dev, &s->irq[ATLANTRONIC_CAN_IRQ_RX0]);
 
+	s->event_start = 0;
+	s->event_end = 0;
+	qemu_mutex_init(&s->event_mutex);
+	qemu_cond_init(&s->event_cond);
+	qemu_cond_init(&s->event_rx_complete_cond);
 	atlantronic_can_reset(&s->can);
+	qemu_thread_create(&s->rx_thread_id, atlantronic_can_rx_thread, s, QEMU_THREAD_JOINABLE);
 
     return 0;
 }

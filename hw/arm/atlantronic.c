@@ -116,13 +116,15 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 #endif
 	DeviceState* can1 = sysbus_create_simple("atlantronic-can", CAN1_BASE, NULL);
 	sysbus_connect_irq(SYS_BUS_DEVICE(can1), 0, pic[CAN1_TX_IRQn]);
+	sysbus_connect_irq(SYS_BUS_DEVICE(can1), 1, pic[CAN1_RX0_IRQn]);
 
 	// usb
 	DeviceState* usb = sysbus_create_simple("atlantronic-usb", USB_OTG_FS_BASE_ADDR, NULL);
 	sysbus_connect_irq(SYS_BUS_DEVICE(usb), 0, pic[OTG_FS_IRQn]);
-#if 0
+
 	// modele
 	DeviceState* model = sysbus_create_simple("atlantronic-model", 0, NULL);
+#if 0
 	qdev_connect_gpio_out(tim2, 0, qdev_get_gpio_in(model, 0)); // encodeur 1 (droite)
 	qdev_connect_gpio_out(tim4, 0, qdev_get_gpio_in(model, 1)); // encodeur 2 (gauche)
 	qdev_connect_gpio_out(tim1, 1, qdev_get_gpio_in(model, 2)); // pwm 1 (droite)

@@ -5,7 +5,7 @@ obj-y += tosa.o versatilepb.o vexpress.o xilinx_zynq.o z2.o
 obj-y += atlantronic.o atlantronic_gpio.o atlantronic_rcc.o atlantronic_tim.o
 obj-y += atlantronic_model.o atlantronic_tools.o
 #obj-y += atlantronic_adc.o atlantronic_usart.o atlantronic_hokuyo.o 
-obj-y += atlantronic_can.o
+obj-y += atlantronic_can.o atlantronic_canopen.o atlantronic_can_motor.o
 obj-y += atlantronic_usb.o
 # atlantronic_dma.o atlantronic_dma_chan.o
 
