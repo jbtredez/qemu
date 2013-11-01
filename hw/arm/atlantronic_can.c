@@ -20,14 +20,14 @@ struct atlantronic_can_state
 	MemoryRegion iomem;
 	CAN_TypeDef can;
 	QemuMutex event_mutex;
-	QemuCond event_cond;
-	QemuCond event_rx_complete_cond;
-	QemuThread rx_thread_id;
 	uint32_t event_start;
 	uint32_t event_end;
+	int rx_complete;
 	struct can_msg event[EVENT_NUM];
 	qemu_irq irq[ATLANTRONIC_CAN_IRQ_MAX];
 };
+
+static int atlantronic_can_update_rx(struct atlantronic_can_state* s);
 
 static void atlantronic_can_write_tx_mailbox(struct atlantronic_can_state* s, hwaddr offset, uint64_t val)
 {
@@ -66,6 +66,7 @@ static void atlantronic_can_write_tx_mailbox(struct atlantronic_can_state* s, hw
 				qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_TX0], 1);
 
 				atlantronic_canopen_tx(s, msg);
+				atlantronic_can_update_rx(s);
 			}
 			s->can.sTxMailBox[i].TIR = val;
 			break;
@@ -145,10 +146,14 @@ static void atlantronic_can_write(void *opaque, hwaddr offset, uint64_t val, uns
 			if(val & CAN_RF0R_RFOM0)
 			{
 				s->can.TSR &= ~CAN_RF0R_RFOM0;
-				qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_RX0], 0);
 				qemu_mutex_lock(&s->event_mutex);
-				qemu_cond_signal(&s->event_rx_complete_cond);
+				s->rx_complete = 1;
 				qemu_mutex_unlock(&s->event_mutex);
+				int res = atlantronic_can_update_rx(s);
+				if( ! res )
+				{
+					qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_RX0], 0);
+				}
 			}
 			break;
 		W_ACCESS(CAN_TypeDef, s->can, RF1R, val);
@@ -237,26 +242,22 @@ void atlantronic_can_rx(void *opaque, struct can_msg msg)
 		s->event[s->event_end] = msg;
 		s->event_end = (s->event_end + 1) % EVENT_NUM;
 	}
-	qemu_cond_signal(&s->event_cond);
 	qemu_mutex_unlock(&s->event_mutex);
 }
 
-static void* atlantronic_can_rx_thread(void* arg)
+static int atlantronic_can_update_rx(struct atlantronic_can_state* s)
 {
-	struct atlantronic_can_state* s = arg;
 	struct can_msg msg;
+	int res = 0;
 
-	while(1)
+	qemu_mutex_lock(&s->event_mutex);
+
+	if(s->event_start != s->event_end && s->rx_complete)
 	{
-		qemu_mutex_lock(&s->event_mutex);
+		s->rx_complete = 0;
 
-		if(s->event_start == s->event_end)
-		{
-			qemu_cond_wait(&s->event_cond, &s->event_mutex);
-		}
 		msg = s->event[s->event_start];
 		s->event_start = (s->event_start + 1) % EVENT_NUM;
-		qemu_mutex_unlock(&s->event_mutex);
 
 		s->can.sFIFOMailBox[0].RIR = (unsigned int)(msg.id << 21);
 
@@ -265,14 +266,13 @@ static void* atlantronic_can_rx_thread(void* arg)
 
 		s->can.sFIFOMailBox[0].RDTR = msg.size & 0x0f;
 		s->can.RF0R |= CAN_RF0R_FMP0;
+
 		qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_RX0], 1);
-
-		qemu_mutex_lock(&s->event_mutex);
-		qemu_cond_wait(&s->event_rx_complete_cond, &s->event_mutex);
-		qemu_mutex_unlock(&s->event_mutex);
+		res = 1;
 	}
+	qemu_mutex_unlock(&s->event_mutex);
 
-	return 0;
+	return res;
 }
 
 static void atlantronic_can_reset(CAN_TypeDef* can)
@@ -331,14 +331,12 @@ static int atlantronic_can_init(SysBusDevice * dev)
 	sysbus_init_mmio(dev, &s->iomem);
 	sysbus_init_irq(dev, &s->irq[ATLANTRONIC_CAN_IRQ_TX0]);
 	sysbus_init_irq(dev, &s->irq[ATLANTRONIC_CAN_IRQ_RX0]);
+	s->rx_complete = 1;
 
 	s->event_start = 0;
 	s->event_end = 0;
 	qemu_mutex_init(&s->event_mutex);
-	qemu_cond_init(&s->event_cond);
-	qemu_cond_init(&s->event_rx_complete_cond);
 	atlantronic_can_reset(&s->can);
-	qemu_thread_create(&s->rx_thread_id, atlantronic_can_rx_thread, s, QEMU_THREAD_JOINABLE);
 
     return 0;
 }
