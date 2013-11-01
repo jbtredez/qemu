@@ -8,7 +8,7 @@ struct atlantronic_can_motor
 	uint8_t nodeid; //! id
 	float posCmd;    //! commande de position
 	float speedCmd;  //! commande de vitesse
-	float pos;       //! position actuelle
+	uint32_t pos;    //! position actuelle
 	float v;         //! vitesse actuelle
 };
 

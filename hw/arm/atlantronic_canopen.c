@@ -77,23 +77,51 @@ void atlantronic_canopen_tx(void* can_interface, struct can_msg msg)
 				for(i = 1; i < CANOPEN_MAX_NODE; i++)
 				{
 					atlantronic_canopen_set_nmt(can_interface, i, new_state);
+					// appel de la callback pour les actions specifiques a faire
+					if(atlantronic_canopen_node[i].nodeid == i)
+					{
+						atlantronic_canopen_node[i].callback(can_interface, atlantronic_canopen_node[i].opaque, msg, type);
+					}
 				}
 			}
 			else
 			{
 				atlantronic_canopen_set_nmt(can_interface, nodeid, new_state);
+				// appel de la callback pour les actions specifiques a faire
+				if(nodeid > 0 && nodeid < CANOPEN_MAX_NODE && atlantronic_canopen_node[nodeid].nodeid == nodeid)
+				{
+					atlantronic_canopen_node[nodeid].callback(can_interface, atlantronic_canopen_node[nodeid].opaque, msg, type);
+				}
 			}
 		}
-
-		return;
 	}
-
-	if(nodeid > 0)
+	else if( type == CANOPEN_SYNC )
 	{
-		if(atlantronic_canopen_node[nodeid].nodeid == nodeid)
+		if( nodeid != 0)
 		{
-			// noeud parametre
-			atlantronic_canopen_node[nodeid].callback(can_interface, atlantronic_canopen_node[nodeid].opaque, msg, type);
+			// TODO erreur;
+			return;
+		}
+
+		// sync sur tout les noeuds
+		for(i = 1; i < CANOPEN_MAX_NODE; i++)
+		{
+			// appel de la callback pour les actions specifiques a faire
+			if(atlantronic_canopen_node[i].nodeid == i)
+			{
+				atlantronic_canopen_node[i].callback(can_interface, atlantronic_canopen_node[i].opaque, msg, type);
+			}
+		}
+	}
+	else
+	{
+		if(nodeid > 0)
+		{
+			if(atlantronic_canopen_node[nodeid].nodeid == nodeid)
+			{
+				// noeud parametre
+				atlantronic_canopen_node[nodeid].callback(can_interface, atlantronic_canopen_node[nodeid].opaque, msg, type);
+			}
 		}
 	}
 }
