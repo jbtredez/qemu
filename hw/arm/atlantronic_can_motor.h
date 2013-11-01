@@ -5,11 +5,10 @@
 
 struct atlantronic_can_motor
 {
-	uint8_t nodeid; //! id
-	float posCmd;    //! commande de position
-	float speedCmd;  //! commande de vitesse
-	uint32_t pos;    //! position actuelle
-	float v;         //! vitesse actuelle
+	uint8_t nodeid;    //! id
+	int32_t speedCmd;  //! commande de vitesse en rpm
+	uint32_t pos;      //! position actuelle
+	//float v;           //! vitesse actuelle
 };
 
 int atlantronic_can_motor_connect(struct atlantronic_can_motor* motor);
