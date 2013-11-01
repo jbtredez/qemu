@@ -1,6 +1,7 @@
 #include "atlantronic_can_motor.h"
 #include "atlantronic_canopen.h"
 #include <stdio.h>
+#include <string.h>
 
 #define CAN_MOTOR_CMD_DI   0x08      //!< enable
 #define CAN_MOTOR_CMD_EN   0x0f      //!< disable
@@ -31,8 +32,10 @@ void atlantronic_can_motor_callback(void* can_interface, void* opaque, struct ca
 			}
 			break;
 		case CANOPEN_SYNC:
-			// sync
-			//printf("sync %x\n", motor->nodeid);
+			// TODO mise a jour du modele, on dit que c'est toutes les 5ms...
+			motor->pos += (50 * motor->speedCmd * 5) / 1000;
+
+			// envoi message
 			rx_msg.id = 0x80 * CANOPEN_RX_PDO3 + motor->nodeid;
 			rx_msg.data[0] = motor->pos & 0xff;
 			rx_msg.data[1] = (motor->pos >> 8) & 0xff;
@@ -40,8 +43,7 @@ void atlantronic_can_motor_callback(void* can_interface, void* opaque, struct ca
 			rx_msg.data[3] = (motor->pos >> 24) & 0xff;
 			rx_msg.data[4] = 0;
 			rx_msg.data[5] = 0;
-			rx_msg.data[6] = 0;
-			rx_msg.data[7] = 0;
+			rx_msg.data[6] = 5; // TODO on dit que c'est 5ms
 			rx_msg.size = 7;
 			atlantronic_can_rx(can_interface, rx_msg);
 			break;
@@ -56,6 +58,9 @@ void atlantronic_can_motor_callback(void* can_interface, void* opaque, struct ca
 					rx_msg.data[1] = 0;
 					rx_msg.size = 2;
 					atlantronic_can_rx(can_interface, rx_msg);
+					break;
+				case CAN_MOTOR_CMD_V:
+					memcpy(&motor->speedCmd, &msg.data[1], 4);
 					break;
 			}
 			break;
@@ -79,3 +84,4 @@ int atlantronic_can_motor_connect(struct atlantronic_can_motor* motor)
 {
 	return atlantronic_canopen_register_node(motor->nodeid, (void*)motor, atlantronic_can_motor_callback);
 }
+
