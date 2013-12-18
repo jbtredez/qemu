@@ -50,15 +50,11 @@ struct atlantronic_usb_state
 	int32_t fifo_start[NUM_TX_FIFOS];
 	int32_t fifo_end[NUM_TX_FIFOS];
 	uint32_t pcgcctl;
-	QemuThread rx_thread_id;
 	struct atlantronic_usb_rx_event event[EVENT_NUM];
+	struct atlantronic_usb_rx_event current_ev;
 	uint32_t event_start;
 	uint32_t event_end;
 	QemuMutex event_mutex;
-	QemuCond event_cond;
-	QemuCond xfer_complete_cond;
-	QemuCond setup_complete_cond;
-	QemuMutex xfer_complete_mutex;
 
 	// fifos d'envoi
 	int32_t tx_count[NUM_TX_FIFOS];
@@ -66,6 +62,7 @@ struct atlantronic_usb_state
 };
 
 static int32_t atlantronic_usb_write_rx_fifo0_data(struct atlantronic_usb_state *usb, const uint8_t* data, uint16_t length);
+static void atlantronic_usb_send_next_event(struct atlantronic_usb_state* usb, int locked);
 
 static void atlantronic_usb_reset(struct atlantronic_usb_state* usb)
 {
@@ -132,26 +129,21 @@ static void atlantronic_usb_reset(struct atlantronic_usb_state* usb)
 	usb->pcgcctl = 0x00;
 }
 
-static void* atlantronic_usb_rx_thread(void* arg)
+void atlantronic_usb_send_next_event(struct atlantronic_usb_state* usb, int locked)
 {
-	struct atlantronic_usb_state* usb = arg;
-	struct atlantronic_usb_rx_event ev;
-
-	while(1)
+	if(!locked)
 	{
 		qemu_mutex_lock(&usb->event_mutex);
+	}
 
-		if(usb->event_start == usb->event_end)
-		{
-			qemu_cond_wait(&usb->event_cond, &usb->event_mutex);
-		}
-		ev = usb->event[usb->event_start];
+	if(usb->event_start != usb->event_end)
+	{
+		usb->current_ev = usb->event[usb->event_start];
 		usb->event_start = (usb->event_start + 1) % EVENT_NUM;
-		qemu_mutex_unlock(&usb->event_mutex);
 
 		USB_OTG_DRXSTS_TypeDef grxstsp;
 		grxstsp.d32 = usb->gregs.GRXSTSP;
-		if(ev.type == ATLANTRONIC_EVENT_DATA)
+		if(usb->current_ev.type == ATLANTRONIC_EVENT_DATA)
 		{
 			grxstsp.b.pktsts = 2;
 		}
@@ -160,36 +152,19 @@ static void* atlantronic_usb_rx_thread(void* arg)
 			grxstsp.b.pktsts = 6;  // SETUP data packet received (PKTSTS)
 		}
 
-		atlantronic_usb_write_rx_fifo0_data(usb, ev.data, ev.length);
-		grxstsp.b.epnum = ev.ep;
-		grxstsp.b.bcnt = ev.length;
+		atlantronic_usb_write_rx_fifo0_data(usb, usb->current_ev.data, usb->current_ev.length);
+		grxstsp.b.epnum = usb->current_ev.ep;
+		grxstsp.b.bcnt = usb->current_ev.length;
 
 		usb->gregs.GRXSTSP = grxstsp.d32;
-		usb->douteps[ev.ep].DOEPINT = 0x00;
-
-		qemu_mutex_lock(&usb->xfer_complete_mutex);
+		usb->douteps[usb->current_ev.ep].DOEPINT = 0x00;
 		usb->gregs.GINTSTS |= 0x10;          // IT RX fifo
 		qemu_set_irq(usb->irq, 1);
-		qemu_cond_wait(&usb->xfer_complete_cond, &usb->xfer_complete_mutex);
-
-		if(ev.type == ATLANTRONIC_EVENT_DATA)
-		{
-			// transfert data ok
-			usb->douteps[ev.ep].DOEPINT = 0x01;
-		}
-		else
-		{
-			// setup done
-			usb->douteps[ev.ep].DOEPINT = 0x08;    // EP0 -> STUP (SETUP phase done)
-		}
-
-		usb->gregs.GINTSTS |= 0x80000;     // IT out EP
-		qemu_set_irq(usb->irq, 1);
-		qemu_cond_wait(&usb->setup_complete_cond, &usb->xfer_complete_mutex);
-		qemu_mutex_unlock(&usb->xfer_complete_mutex);
 	}
-
-	return 0;
+	if(!locked)
+	{
+		qemu_mutex_unlock(&usb->event_mutex);
+	}
 }
 
 static uint32_t atlantronic_usb_read32_fifo(struct atlantronic_usb_state *usb, int fifo_id)
@@ -205,11 +180,22 @@ static uint32_t atlantronic_usb_read32_fifo(struct atlantronic_usb_state *usb, i
 	if( usb->fifo_start[fifo_id] == usb->fifo_end[fifo_id])
 	{
 		// flag xfercompl
-		qemu_mutex_lock(&usb->xfer_complete_mutex);
 		usb->gregs.GINTSTS &= ~0x10;          // IT RX fifo
 		//qemu_set_irq(usb->irq, 0);
-		qemu_cond_signal(&usb->xfer_complete_cond);
-		qemu_mutex_unlock(&usb->xfer_complete_mutex);
+
+		if(usb->current_ev.type == ATLANTRONIC_EVENT_DATA)
+		{
+			// transfert data ok
+			usb->douteps[usb->current_ev.ep].DOEPINT = 0x01;
+		}
+		else
+		{
+			// setup done
+			usb->douteps[usb->current_ev.ep].DOEPINT = 0x08;    // EP0 -> STUP (SETUP phase done)
+		}
+
+		usb->gregs.GINTSTS |= 0x80000;     // IT out EP
+		qemu_set_irq(usb->irq, 1);
 	}
 	return data;
 }
@@ -273,7 +259,12 @@ static void atlantronic_usb_write_gregs(struct atlantronic_usb_state *usb, hwadd
 		case offsetof(USB_OTG_GREGS, GINTSTS):
 			if( (val & 0x1000) && (usb->gregs.GINTSTS & 0x1000)) // clear bit d'IT reset
 			{
+				int send = 0;
 				qemu_mutex_lock(&usb->event_mutex);
+				if(usb->event_start == usb->event_end)
+				{
+					send = 1;
+				}
 				if((usb->event_end + 1) % EVENT_NUM != usb->event_start)
 				{
 					//printf("[QEMU] set address 1\n");
@@ -288,7 +279,10 @@ static void atlantronic_usb_write_gregs(struct atlantronic_usb_state *usb, hwadd
 					usb->event[usb->event_end].setup_length = 0x0000;
 					usb->event_end = (usb->event_end + 1) % EVENT_NUM;
 				}
-				qemu_cond_signal(&usb->event_cond);
+				if(send)
+				{
+					atlantronic_usb_send_next_event(usb, true);
+				}
 				qemu_mutex_unlock(&usb->event_mutex);
 			}
 			else
@@ -363,7 +357,6 @@ static void atlantronic_usb_write_dev(struct atlantronic_usb_state *usb, hwaddr 
 				{
 					//printf("[QEMU] usb addressed (%d)\n", new_dcfg.b.devaddr);
 					qemu_mutex_lock(&usb->event_mutex);
-
 					if((usb->event_end + 1) % EVENT_NUM != usb->event_start)
 					{
 						// il reste de la place
@@ -378,8 +371,6 @@ static void atlantronic_usb_write_dev(struct atlantronic_usb_state *usb, hwaddr 
 						usb->event[usb->event_end].setup_length = 0x0000;
 						usb->event_end = (usb->event_end + 1) % EVENT_NUM;
 					}
-
-					qemu_cond_signal(&usb->event_cond);
 					qemu_mutex_unlock(&usb->event_mutex);
 				}
 				usb->dev.DCFG = val;
@@ -547,12 +538,10 @@ static void atlantronic_usb_write_douteps(struct atlantronic_usb_state *usb, hwa
 			{
 				if(doepint.b.xfercompl || doepint.b.setup)
 				{
-					qemu_mutex_lock(&usb->xfer_complete_mutex);
 					usb->gregs.GINTSTS &= ~0x80000;       // IT out EP
 					//printf("[QEMU] paquet ok\n");
 					qemu_set_irq(usb->irq, 0);
-					qemu_cond_signal(&usb->setup_complete_cond);
-					qemu_mutex_unlock(&usb->xfer_complete_mutex);
+					atlantronic_usb_send_next_event(usb, false);
 				}
 			}
 			usb->douteps[i].DOEPINT = doepint.d32;
@@ -713,8 +702,13 @@ static int atlantronic_usb_can_receive(void *opaque)
 static void atlantronic_usb_receive(void *opaque, const uint8_t* buf, int size)
 {
 	struct atlantronic_usb_state *usb = opaque;
+	int send = 0;
 
 	qemu_mutex_lock(&usb->event_mutex);
+	if(usb->event_start == usb->event_end)
+	{
+		send = 1;
+	}
 	if((usb->event_end + 1) % EVENT_NUM != usb->event_start && size < EVENT_DATA_SIZE && size > 0)
 	{
 		// il reste de la place
@@ -724,7 +718,10 @@ static void atlantronic_usb_receive(void *opaque, const uint8_t* buf, int size)
 		memcpy(usb->event[usb->event_end].data, buf, size);
 		usb->event_end = (usb->event_end + 1) % EVENT_NUM;
 	}
-	qemu_cond_signal(&usb->event_cond);
+	if(send)
+	{
+		atlantronic_usb_send_next_event(usb, true);
+	}
 	qemu_mutex_unlock(&usb->event_mutex);
 }
 
@@ -763,11 +760,6 @@ static int atlantronic_usb_init(SysBusDevice * dev)
 	s->event_start = 0;
 	s->event_end = 0;
 	qemu_mutex_init(&s->event_mutex);
-	qemu_mutex_init(&s->xfer_complete_mutex);
-	qemu_cond_init(&s->event_cond);
-	qemu_cond_init(&s->xfer_complete_cond);
-	qemu_cond_init(&s->setup_complete_cond);
-	qemu_thread_create(&s->rx_thread_id, atlantronic_usb_rx_thread, s, QEMU_THREAD_JOINABLE);
 
     return 0;
 }
