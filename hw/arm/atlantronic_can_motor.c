@@ -11,6 +11,8 @@
 #define CAN_MOTOR_CMD_V    0x93      //!< commande de vitesse
 #define CAN_MOTOR_CMD_LA   0xb4      //!< commande de position
 
+#define ENCODER_RESOLUTION         3000
+
 void atlantronic_can_motor_callback(void* can_interface, void* opaque, struct can_msg msg, int type);
 
 void atlantronic_can_motor_callback(void* can_interface, void* opaque, struct can_msg msg, int type)
@@ -33,7 +35,7 @@ void atlantronic_can_motor_callback(void* can_interface, void* opaque, struct ca
 			break;
 		case CANOPEN_SYNC:
 			// TODO mise a jour du modele, on dit que c'est toutes les 5ms...
-			motor->pos += (50 * motor->speedCmd * 5) / 1000;
+			motor->pos += (ENCODER_RESOLUTION * motor->speedCmd * 5) / (60 * 1000);
 
 			// envoi message
 			rx_msg.id = 0x80 * CANOPEN_RX_PDO3 + motor->nodeid;
