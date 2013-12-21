@@ -17,7 +17,7 @@ struct atlantronic_dma_stream_state
 
 static void atlantronic_update_dma(struct atlantronic_dma_stream_state *s)
 {
-	if( ! s->dma_stream.CR & 0x01 )
+	if( ! s->dma_stream.CR & DMA_SxCR_EN )
 	{
 		// dma desactive
 		return;
@@ -29,36 +29,38 @@ static void atlantronic_update_dma(struct atlantronic_dma_stream_state *s)
 		return;
 	}
 
-	int dir = (s->dma_stream.CR >> 6) & 0x02;
+	int dir = (s->dma_stream.CR >> 6) & 0x03;
 	int pinc = (s->dma_stream.CR >> 9) & 0x01;
 	int minc = (s->dma_stream.CR >> 10) & 0x01;
 	int psize = 1 << ((s->dma_stream.CR >> 11) & 0x3);
 	int msize = 1 << ((s->dma_stream.CR >> 13) & 0x3);
 
 	int64_t val;
-	if( dir == 0x01 )
-	{
-		// sens mem -> perif
-		cpu_physical_memory_read(s->dma_stream.M0AR, &val, psize);
-		cpu_physical_memory_write(s->dma_stream.PAR, &val, msize);
-	}
-	else if( dir == 0x00 )
+	if( dir == 0x00 )
 	{
 		// sens perif -> mem
 		cpu_physical_memory_read(s->dma_stream.PAR, &val, psize);
 		cpu_physical_memory_write(s->dma_stream.M0AR, &val, msize);
 	}
+	else
+	{
+		// sens mem -> perif
+		cpu_physical_memory_read(s->dma_stream.M0AR, &val, psize);
+		cpu_physical_memory_write(s->dma_stream.PAR, &val, msize);
+	}
 
 	s->dma_stream.PAR += psize * pinc;
 	s->dma_stream.M0AR += msize * minc;
 	s->dma_stream.NDTR--;
+
 	if( ! s->dma_stream.NDTR )
 	{
 		s->dma_stream.PAR = s->cpar_init;
 		s->dma_stream.M0AR = s->cmar_init;
 		// si circ : rechargement cndtr
-		if( ((s->dma_stream.CR >> 5) & 0x01 ) && ! dir )
+		if( ((s->dma_stream.CR >> 8) & 0x01 ) && ! dir )
 		{
+
 			s->dma_stream.NDTR = s->cndtr_init;
 		}
 
@@ -74,12 +76,12 @@ static void atlantronic_dma_stream_write(void *opaque, hwaddr offset, uint64_t v
 	switch(offset)
 	{
 		case offsetof(DMA_Stream_TypeDef, CR):
-			if( ! (s->dma_stream.CR & 0x01) && (val & 0x01) )
+			if( ! (s->dma_stream.CR & DMA_SxCR_EN) && (val & DMA_SxCR_EN) )
 			{
 				s->cndtr_init = s->dma_stream.NDTR;
 				s->cpar_init = s->dma_stream.PAR;
 				s->cmar_init = s->dma_stream.M0AR;
-				if( (s->dma_stream.CR >> 4) & 0x01 )
+				if( (s->dma_stream.CR >> 6) & 0x01 )
 				{
 					// mem -> perif
 					while( s->dma_stream.NDTR )
@@ -87,7 +89,7 @@ static void atlantronic_dma_stream_write(void *opaque, hwaddr offset, uint64_t v
 						atlantronic_update_dma(s);
 					}
 				}
-			}			
+			}
 			s->dma_stream.CR = val;
 			break;
 		case offsetof(DMA_Stream_TypeDef, NDTR):

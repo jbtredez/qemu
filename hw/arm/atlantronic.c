@@ -24,11 +24,11 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	sysbus_create_simple("atlantronic-rcc", RCC_BASE, NULL);
 
 	// gpio
-	DeviceState* gpioa = sysbus_create_simple("atlantronic-gpio", GPIOA_BASE, NULL);
-	DeviceState* gpiob = sysbus_create_simple("atlantronic-gpio", GPIOB_BASE, NULL);
-	DeviceState* gpioc = sysbus_create_simple("atlantronic-gpio", GPIOC_BASE, NULL);
+	/*DeviceState* gpioa = */sysbus_create_simple("atlantronic-gpio", GPIOA_BASE, NULL);
+	/*DeviceState* gpiob = */sysbus_create_simple("atlantronic-gpio", GPIOB_BASE, NULL);
+	/*DeviceState* gpioc = */sysbus_create_simple("atlantronic-gpio", GPIOC_BASE, NULL);
 	sysbus_create_simple("atlantronic-gpio", GPIOD_BASE, NULL);
-	DeviceState* gpioe = sysbus_create_simple("atlantronic-gpio", GPIOE_BASE, NULL);
+	/*DeviceState* gpioe = */sysbus_create_simple("atlantronic-gpio", GPIOE_BASE, NULL);
 	sysbus_create_simple("atlantronic-gpio", GPIOF_BASE, NULL);
 #if 0
 	// mise a 1 des pin 2 et 3 de gpioa (id de foo)
@@ -37,57 +37,68 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 #endif
 
 	// tim
-	DeviceState* tim1 = sysbus_create_simple("atlantronic-tim", TIM1_BASE, NULL);
-	DeviceState* tim2 = sysbus_create_simple("atlantronic-tim", TIM2_BASE, NULL);
+	/*DeviceState* tim1 = */sysbus_create_simple("atlantronic-tim", TIM1_BASE, NULL);
+	/*DeviceState* tim2 = */sysbus_create_simple("atlantronic-tim", TIM2_BASE, NULL);
 	sysbus_create_simple("atlantronic-tim", TIM3_BASE, NULL);
-	DeviceState* tim4 = sysbus_create_simple("atlantronic-tim", TIM4_BASE, NULL);
+	/*DeviceState* tim4 = */sysbus_create_simple("atlantronic-tim", TIM4_BASE, NULL);
 	sysbus_create_simple("atlantronic-tim", TIM5_BASE, NULL);
 	sysbus_create_simple("atlantronic-tim", TIM6_BASE, NULL);
 	sysbus_create_simple("atlantronic-tim", TIM7_BASE, NULL);
 	sysbus_create_simple("atlantronic-tim", TIM8_BASE, NULL);
 
-#if 0
 	// dma
 	DeviceState* dma1 = sysbus_create_simple("atlantronic-dma", DMA1_BASE, NULL);
-	DeviceState* dma1_chan1 = sysbus_create_simple("atlantronic-dma-chan", DMA1_Channel1_BASE, NULL);
-	DeviceState* dma1_chan2 = sysbus_create_simple("atlantronic-dma-chan", DMA1_Channel2_BASE, NULL);
-	DeviceState* dma1_chan3 = sysbus_create_simple("atlantronic-dma-chan", DMA1_Channel3_BASE, NULL);
-	DeviceState* dma1_chan4 = sysbus_create_simple("atlantronic-dma-chan", DMA1_Channel4_BASE, NULL);
-	DeviceState* dma1_chan5 = sysbus_create_simple("atlantronic-dma-chan", DMA1_Channel5_BASE, NULL);
-	DeviceState* dma1_chan6 = sysbus_create_simple("atlantronic-dma-chan", DMA1_Channel6_BASE, NULL);
-	DeviceState* dma1_chan7 = sysbus_create_simple("atlantronic-dma-chan", DMA1_Channel7_BASE, NULL);
-	qdev_connect_gpio_out(dma1_chan1, 0, qdev_get_gpio_in(dma1, 0));  // dma1_chan1 -> dma1
-	qdev_connect_gpio_out(dma1_chan2, 0, qdev_get_gpio_in(dma1, 1));  // dma1_chan2 -> dma1
-	qdev_connect_gpio_out(dma1_chan3, 0, qdev_get_gpio_in(dma1, 2));  // dma1_chan3 -> dma1
-	qdev_connect_gpio_out(dma1_chan4, 0, qdev_get_gpio_in(dma1, 3));  // dma1_chan4 -> dma1
-	qdev_connect_gpio_out(dma1_chan5, 0, qdev_get_gpio_in(dma1, 4));  // dma1_chan5 -> dma1
-	qdev_connect_gpio_out(dma1_chan6, 0, qdev_get_gpio_in(dma1, 5));  // dma1_chan6 -> dma1
-	qdev_connect_gpio_out(dma1_chan7, 0, qdev_get_gpio_in(dma1, 6));  // dma1_chan7 -> dma1
-	qdev_connect_gpio_out(dma1, 0, pic[DMA1_Channel1_IRQn]);
-	qdev_connect_gpio_out(dma1, 1, pic[DMA1_Channel2_IRQn]);
-	qdev_connect_gpio_out(dma1, 2, pic[DMA1_Channel3_IRQn]);
-	qdev_connect_gpio_out(dma1, 3, pic[DMA1_Channel4_IRQn]);
-	qdev_connect_gpio_out(dma1, 4, pic[DMA1_Channel5_IRQn]);
-	qdev_connect_gpio_out(dma1, 5, pic[DMA1_Channel6_IRQn]);
-	qdev_connect_gpio_out(dma1, 6, pic[DMA1_Channel7_IRQn]);
+	DeviceState* dma1_stream0 = sysbus_create_simple("atlantronic-dma-stream", DMA1_Stream0_BASE, NULL);
+	DeviceState* dma1_stream1 = sysbus_create_simple("atlantronic-dma-stream", DMA1_Stream1_BASE, NULL);
+	DeviceState* dma1_stream2 = sysbus_create_simple("atlantronic-dma-stream", DMA1_Stream2_BASE, NULL);
+	DeviceState* dma1_stream3 = sysbus_create_simple("atlantronic-dma-stream", DMA1_Stream3_BASE, NULL);
+	DeviceState* dma1_stream4 = sysbus_create_simple("atlantronic-dma-stream", DMA1_Stream4_BASE, NULL);
+	DeviceState* dma1_stream5 = sysbus_create_simple("atlantronic-dma-stream", DMA1_Stream5_BASE, NULL);
+	DeviceState* dma1_stream6 = sysbus_create_simple("atlantronic-dma-stream", DMA1_Stream6_BASE, NULL);
+	DeviceState* dma1_stream7 = sysbus_create_simple("atlantronic-dma-stream", DMA1_Stream7_BASE, NULL);
+	qdev_connect_gpio_out(dma1_stream0, 0, qdev_get_gpio_in(dma1, 0));  // dma1_stream0 -> dma1
+	qdev_connect_gpio_out(dma1_stream1, 0, qdev_get_gpio_in(dma1, 1));  // dma1_stream1 -> dma1
+	qdev_connect_gpio_out(dma1_stream2, 0, qdev_get_gpio_in(dma1, 2));  // dma1_stream2 -> dma1
+	qdev_connect_gpio_out(dma1_stream3, 0, qdev_get_gpio_in(dma1, 3));  // dma1_stream3 -> dma1
+	qdev_connect_gpio_out(dma1_stream4, 0, qdev_get_gpio_in(dma1, 4));  // dma1_stream4 -> dma1
+	qdev_connect_gpio_out(dma1_stream5, 0, qdev_get_gpio_in(dma1, 5));  // dma1_stream5 -> dma1
+	qdev_connect_gpio_out(dma1_stream6, 0, qdev_get_gpio_in(dma1, 6));  // dma1_stream6 -> dma1
+	qdev_connect_gpio_out(dma1_stream7, 0, qdev_get_gpio_in(dma1, 7));  // dma1_stream7 -> dma1
+	qdev_connect_gpio_out(dma1, 0, pic[DMA1_Stream0_IRQn]);
+	qdev_connect_gpio_out(dma1, 1, pic[DMA1_Stream1_IRQn]);
+	qdev_connect_gpio_out(dma1, 2, pic[DMA1_Stream2_IRQn]);
+	qdev_connect_gpio_out(dma1, 3, pic[DMA1_Stream3_IRQn]);
+	qdev_connect_gpio_out(dma1, 4, pic[DMA1_Stream4_IRQn]);
+	qdev_connect_gpio_out(dma1, 5, pic[DMA1_Stream5_IRQn]);
+	qdev_connect_gpio_out(dma1, 6, pic[DMA1_Stream6_IRQn]);
+	qdev_connect_gpio_out(dma1, 7, pic[DMA1_Stream7_IRQn]);
 
 	DeviceState* dma2 = sysbus_create_simple("atlantronic-dma", DMA2_BASE, NULL);
-	DeviceState* dma2_chan1 = sysbus_create_simple("atlantronic-dma-chan", DMA2_Channel1_BASE, NULL);
-	DeviceState* dma2_chan2 = sysbus_create_simple("atlantronic-dma-chan", DMA2_Channel2_BASE, NULL);
-	DeviceState* dma2_chan3 = sysbus_create_simple("atlantronic-dma-chan", DMA2_Channel3_BASE, NULL);
-	DeviceState* dma2_chan4 = sysbus_create_simple("atlantronic-dma-chan", DMA2_Channel4_BASE, NULL);
-	DeviceState* dma2_chan5 = sysbus_create_simple("atlantronic-dma-chan", DMA2_Channel5_BASE, NULL);
-	qdev_connect_gpio_out(dma2_chan1, 0, qdev_get_gpio_in(dma2, 0));  // dma2_chan1 -> dma2
-	qdev_connect_gpio_out(dma2_chan2, 0, qdev_get_gpio_in(dma2, 1));  // dma2_chan2 -> dma2
-	qdev_connect_gpio_out(dma2_chan3, 0, qdev_get_gpio_in(dma2, 2));  // dma2_chan3 -> dma2
-	qdev_connect_gpio_out(dma2_chan4, 0, qdev_get_gpio_in(dma2, 3));  // dma2_chan4 -> dma2
-	qdev_connect_gpio_out(dma2_chan5, 0, qdev_get_gpio_in(dma2, 4));  // dma2_chan5 -> dma2
-	qdev_connect_gpio_out(dma2, 0, pic[DMA2_Channel1_IRQn]);
-	qdev_connect_gpio_out(dma2, 1, pic[DMA2_Channel2_IRQn]);
-	qdev_connect_gpio_out(dma2, 2, pic[DMA2_Channel3_IRQn]);
-	qdev_connect_gpio_out(dma2, 3, pic[DMA2_Channel4_IRQn]);
-	qdev_connect_gpio_out(dma2, 4, pic[DMA2_Channel5_IRQn]);
-
+	DeviceState* dma2_stream0 = sysbus_create_simple("atlantronic-dma-stream", DMA2_Stream0_BASE, NULL);
+	DeviceState* dma2_stream1 = sysbus_create_simple("atlantronic-dma-stream", DMA2_Stream1_BASE, NULL);
+	DeviceState* dma2_stream2 = sysbus_create_simple("atlantronic-dma-stream", DMA2_Stream2_BASE, NULL);
+	DeviceState* dma2_stream3 = sysbus_create_simple("atlantronic-dma-stream", DMA2_Stream3_BASE, NULL);
+	DeviceState* dma2_stream4 = sysbus_create_simple("atlantronic-dma-stream", DMA2_Stream4_BASE, NULL);
+	DeviceState* dma2_stream5 = sysbus_create_simple("atlantronic-dma-stream", DMA2_Stream5_BASE, NULL);
+	DeviceState* dma2_stream6 = sysbus_create_simple("atlantronic-dma-stream", DMA2_Stream6_BASE, NULL);
+	DeviceState* dma2_stream7 = sysbus_create_simple("atlantronic-dma-stream", DMA2_Stream7_BASE, NULL);
+	qdev_connect_gpio_out(dma2_stream0, 0, qdev_get_gpio_in(dma2, 0));  // dma2_stream0 -> dma2
+	qdev_connect_gpio_out(dma2_stream1, 0, qdev_get_gpio_in(dma2, 1));  // dma2_stream1 -> dma2
+	qdev_connect_gpio_out(dma2_stream2, 0, qdev_get_gpio_in(dma2, 2));  // dma2_stream2 -> dma2
+	qdev_connect_gpio_out(dma2_stream3, 0, qdev_get_gpio_in(dma2, 3));  // dma2_stream3 -> dma2
+	qdev_connect_gpio_out(dma2_stream4, 0, qdev_get_gpio_in(dma2, 4));  // dma2_stream4 -> dma2
+	qdev_connect_gpio_out(dma2_stream5, 0, qdev_get_gpio_in(dma2, 5));  // dma2_stream5 -> dma2
+	qdev_connect_gpio_out(dma2_stream6, 0, qdev_get_gpio_in(dma2, 6));  // dma2_stream6 -> dma2
+	qdev_connect_gpio_out(dma2_stream7, 0, qdev_get_gpio_in(dma2, 7));  // dma2_stream7 -> dma2
+	qdev_connect_gpio_out(dma2, 0, pic[DMA2_Stream0_IRQn]);
+	qdev_connect_gpio_out(dma2, 1, pic[DMA2_Stream1_IRQn]);
+	qdev_connect_gpio_out(dma2, 2, pic[DMA2_Stream2_IRQn]);
+	qdev_connect_gpio_out(dma2, 3, pic[DMA2_Stream3_IRQn]);
+	qdev_connect_gpio_out(dma2, 4, pic[DMA2_Stream4_IRQn]);
+	qdev_connect_gpio_out(dma2, 5, pic[DMA2_Stream5_IRQn]);
+	qdev_connect_gpio_out(dma2, 6, pic[DMA2_Stream6_IRQn]);
+	qdev_connect_gpio_out(dma2, 7, pic[DMA2_Stream7_IRQn]);
+#if 0
 	// adc
 	DeviceState* adc1 = sysbus_create_simple("atlantronic-adc", ADC1_BASE, NULL);
 	sysbus_create_simple("atlantronic-adc", ADC2_BASE, NULL);
@@ -108,12 +119,12 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	qdev_connect_gpio_out(gpioc, 4, qdev_get_gpio_in(adc1, 14));  // AN14 = PC4
 	qdev_connect_gpio_out(gpioc, 5, qdev_get_gpio_in(adc1, 15));  // AN15 = PC5
 	qdev_connect_gpio_out(adc1, 0, qdev_get_gpio_in(dma1_chan1, 0));  // adc1 -> dma1_chan1
-
-	// usart
-	DeviceState* usart3 = sysbus_create_simple("atlantronic-usart", USART3_BASE, NULL);
-	qdev_connect_gpio_out(usart3, 0, pic[USART3_IRQn]);  // usart3 -> it hw
-	qdev_connect_gpio_out(usart3, 1, qdev_get_gpio_in(dma1_chan3, 0));  // usart3 -> dma1_chan3 (rx)
 #endif
+	// usart
+	DeviceState* usart2 = sysbus_create_simple("atlantronic-usart", USART2_BASE, NULL);
+	qdev_connect_gpio_out(usart2, 0, pic[USART2_IRQn]);  // usart2 -> it hw
+	qdev_connect_gpio_out(usart2, 1, qdev_get_gpio_in(dma1_stream5, 0));  // usart2 -> dma1_stream5 (rx)
+
 	DeviceState* can1 = sysbus_create_simple("atlantronic-can", CAN1_BASE, NULL);
 	sysbus_connect_irq(SYS_BUS_DEVICE(can1), 0, pic[CAN1_TX_IRQn]);
 	sysbus_connect_irq(SYS_BUS_DEVICE(can1), 1, pic[CAN1_RX0_IRQn]);
@@ -123,7 +134,7 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	sysbus_connect_irq(SYS_BUS_DEVICE(usb), 0, pic[OTG_FS_IRQn]);
 
 	// modele
-	DeviceState* model = sysbus_create_simple("atlantronic-model", 0, NULL);
+	/*DeviceState* model = */sysbus_create_simple("atlantronic-model", 0, NULL);
 #if 0
 	qdev_connect_gpio_out(tim2, 0, qdev_get_gpio_in(model, 0)); // encodeur 1 (droite)
 	qdev_connect_gpio_out(tim4, 0, qdev_get_gpio_in(model, 1)); // encodeur 2 (gauche)
@@ -142,15 +153,15 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_I_LEFT, qdev_get_gpio_in(gpioa, 5));  // intensite moteur 2 (gauche)
 	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_I_MOT3, qdev_get_gpio_in(gpioc, 3));  // intensite moteur 3
 	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_I_MOT4, qdev_get_gpio_in(gpioc, 1));  // intensite moteur 4
-
+#endif
 	// hokuyo
 	DeviceState* hokuyo1 = sysbus_create_simple("atlantronic-hokuyo", 0, NULL);
-	qdev_connect_gpio_out(usart3, 3, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_USART_DATA));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_X, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_X));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_Y, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_Y));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_ALPHA, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_ALPHA));
-	qdev_connect_gpio_out(hokuyo1, 0, qdev_get_gpio_in(usart3, 0));
-#endif
+	qdev_connect_gpio_out(usart2, 3, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_USART_DATA));
+	//qdev_connect_gpio_out(model, MODEL_IRQ_OUT_X, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_X));
+	//qdev_connect_gpio_out(model, MODEL_IRQ_OUT_Y, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_Y));
+	//qdev_connect_gpio_out(model, MODEL_IRQ_OUT_ALPHA, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_ALPHA));
+	qdev_connect_gpio_out(hokuyo1, 0, qdev_get_gpio_in(usart2, 0));
+
 }
 
 static QEMUMachine atlantronic_discovery =
