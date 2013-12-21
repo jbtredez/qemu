@@ -3,7 +3,7 @@
 #include "hw/arm/arm.h"
 #include "atlantronic_cpu.h"
 
-#define DMA_STREAM_NUMBER                7
+#define DMA_STREAM_NUMBER                8
 
 struct atlantronic_dma_state
 {
@@ -103,12 +103,12 @@ static void atlantronic_dma_in_recv(void * opaque, int numPin, int level)
 	int bitShift = 0;
 
 	volatile uint32_t* xISR = &s->dma.LISR;
-	if(level >= 4)
+	if(numPin >= 4)
 	{
 		xISR = &s->dma.HISR;
 	}
 
-	switch(level)
+	switch(numPin)
 	{
 		case 0:
 			bitShift = 0;
@@ -141,7 +141,6 @@ static void atlantronic_dma_in_recv(void * opaque, int numPin, int level)
 
 	old_val = (*xISR >> bitShift) & 0x03f;
 	*xISR |= level << bitShift;
-
 	uint32_t diff_raise = (old_val ^ level) & level;
 	// TODO voir / autres irq (erreur, half transfert)
 	if( diff_raise & 0x20 )
