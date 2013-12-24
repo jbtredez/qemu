@@ -122,8 +122,21 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 #endif
 	// usart
 	DeviceState* usart2 = sysbus_create_simple("atlantronic-usart", USART2_BASE, NULL);
+	DeviceState* usart3 = sysbus_create_simple("atlantronic-usart", USART3_BASE, NULL);
+	DeviceState* uart4 = sysbus_create_simple("atlantronic-usart", UART4_BASE, NULL);
+	DeviceState* uart5 = sysbus_create_simple("atlantronic-usart", UART5_BASE, NULL);
+	DeviceState* usart6 = sysbus_create_simple("atlantronic-usart", USART6_BASE, NULL);
+
 	qdev_connect_gpio_out(usart2, 0, pic[USART2_IRQn]);  // usart2 -> it hw
 	qdev_connect_gpio_out(usart2, 1, qdev_get_gpio_in(dma1_stream5, 0));  // usart2 -> dma1_stream5 (rx)
+	qdev_connect_gpio_out(usart3, 0, pic[USART3_IRQn]);  // usart3 -> it hw
+	qdev_connect_gpio_out(usart3, 1, qdev_get_gpio_in(dma1_stream1, 0));  // usart3 -> dma1_stream1 (rx)
+	qdev_connect_gpio_out(uart4, 0, pic[UART4_IRQn]);  // uart4 -> it hw
+	qdev_connect_gpio_out(uart4, 1, qdev_get_gpio_in(dma1_stream2, 0));  // uart4 -> dma1_stream2 (rx)
+	qdev_connect_gpio_out(uart5, 0, pic[UART5_IRQn]);  // uart5 -> it hw
+	qdev_connect_gpio_out(uart5, 1, qdev_get_gpio_in(dma1_stream0, 0));  // uart5 -> dma1_stream0 (rx)
+	qdev_connect_gpio_out(usart6, 0, pic[USART6_IRQn]);  // usart6 -> it hw
+	qdev_connect_gpio_out(usart6, 1, qdev_get_gpio_in(dma2_stream1, 0));  // usart6 -> dma2_stream1 (rx)
 
 	DeviceState* can1 = sysbus_create_simple("atlantronic-can", CAN1_BASE, NULL);
 	sysbus_connect_irq(SYS_BUS_DEVICE(can1), 0, pic[CAN1_TX_IRQn]);
@@ -156,12 +169,18 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 #endif
 	// hokuyo
 	DeviceState* hokuyo1 = sysbus_create_simple("atlantronic-hokuyo", 0, NULL);
-	qdev_connect_gpio_out(usart2, 3, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_USART_DATA));
+	qdev_connect_gpio_out(uart4, 3, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_USART_DATA));
 	//qdev_connect_gpio_out(model, MODEL_IRQ_OUT_X, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_X));
 	//qdev_connect_gpio_out(model, MODEL_IRQ_OUT_Y, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_Y));
 	//qdev_connect_gpio_out(model, MODEL_IRQ_OUT_ALPHA, qdev_get_gpio_in(hokuyo1, HOKUYO_IRQ_IN_ALPHA));
-	qdev_connect_gpio_out(hokuyo1, 0, qdev_get_gpio_in(usart2, 0));
+	qdev_connect_gpio_out(hokuyo1, 0, qdev_get_gpio_in(uart4, 0));
 
+	DeviceState* hokuyo2 = sysbus_create_simple("atlantronic-hokuyo", 0, NULL);
+	qdev_connect_gpio_out(usart2, 3, qdev_get_gpio_in(hokuyo2, HOKUYO_IRQ_IN_USART_DATA));
+	//qdev_connect_gpio_out(model, MODEL_IRQ_OUT_X, qdev_get_gpio_in(hokuyo2, HOKUYO_IRQ_IN_X));
+	//qdev_connect_gpio_out(model, MODEL_IRQ_OUT_Y, qdev_get_gpio_in(hokuyo2, HOKUYO_IRQ_IN_Y));
+	//qdev_connect_gpio_out(model, MODEL_IRQ_OUT_ALPHA, qdev_get_gpio_in(hokuyo2, HOKUYO_IRQ_IN_ALPHA));
+	qdev_connect_gpio_out(hokuyo2, 0, qdev_get_gpio_in(usart2, 0));
 }
 
 static QEMUMachine atlantronic_discovery =
