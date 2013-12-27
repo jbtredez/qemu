@@ -33,6 +33,25 @@ static void atlantronic_usart_write(void *opaque, hwaddr offset, uint64_t val, u
 			// usart actif et transmission activée
 			if( (s->usart.CR1 & USART_CR1_UE) && (s->usart.CR1 & USART_CR1_TE))
 			{
+				// mode half duplex et reception activée
+				if( (s->usart.CR3 & USART_CR3_HDSEL ) && (s->usart.CR1 & USART_CR1_RE) )
+				{
+					s->usart.DR = val & 0x1ff;
+					s->usart.SR |= USART_SR_RXNE;
+
+					if( s->usart.CR1 & USART_CR1_RXNEIE )
+					{
+						// it reception : un octet a lire
+						qemu_set_irq(s->irq[ATLANTRONIC_USART_IRQ_HW], 1);
+					}
+
+					if( s->usart.CR3 & USART_CR3_DMAR )
+					{
+						// buffer dma de reception => it dmar : un octet a lire
+						qemu_set_irq(s->irq[ATLANTRONIC_USART_IRQ_DMAR], 1);
+					}
+				}
+
 				// IT device
 				qemu_set_irq(s->irq[ATLANTRONIC_USART_IRQ_DEVICE_RX], val & 0x1ff);
 
