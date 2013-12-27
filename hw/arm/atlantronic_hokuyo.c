@@ -32,6 +32,7 @@ struct atlantronic_hokuyo_state
 	float x;
 	float y;
 	float alpha;
+	int clock_scale;
 };
 
 static void atlantronic_hokuyo_send_buffer(struct atlantronic_hokuyo_state* s)
@@ -156,12 +157,11 @@ static void atlantronic_hokuyo_gs(struct atlantronic_hokuyo_state* s)
 
 static void atlantronic_timer_cb(void* arg)
 {
-	static int clock_scale = 1;
 	struct atlantronic_hokuyo_state *s = arg;
 
 	s->timer_count += HOKUYO_PERIOD_TICK;
 	qemu_mod_timer(s->timer, s->timer_count);
-	if( clock_scale >= system_clock_scale)
+	if( s->clock_scale >= system_clock_scale)
 	{
 		if( s->send_scan_when_ready )
 		{
@@ -173,9 +173,9 @@ static void atlantronic_timer_cb(void* arg)
 		{
 			s->scan_ready = 1;
 		}
-		clock_scale = 0;
+		s->clock_scale = 0;
 	}
-	clock_scale++;
+	s->clock_scale++;
 }
 
 static void atlantronic_hokuyo_in_recv_usart(struct atlantronic_hokuyo_state *s, int level)
@@ -282,6 +282,7 @@ static int atlantronic_hokuyo_init(SysBusDevice * dev)
 	s->scan_ready = 0;
 	s->send_scan_when_ready = 0;
 	s->rx_size = 0;
+	s->clock_scale = 1;
 
     return 0;
 }
