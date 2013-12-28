@@ -7,6 +7,7 @@
 #include "atlantronic_tools.h"
 #include "atlantronic_can_motor.h"
 #include "atlantronic_dynamixel.h"
+#include "atlantronic_hokuyo.h"
 
 #include "kernel/robot_parameters.h"
 #include "foo/control/control.h"
@@ -16,6 +17,7 @@
 #define MODEL_FACTOR      10      //!< calcul du modele a 10x la frequence d'utilisation
 
 #define AX12_NUM           6
+#define HOKUYO_NUM         2
 
 #define EVENT_CLOCK_FACTOR         1
 #define EVENT_NEW_OBJECT           2
@@ -30,7 +32,7 @@ struct atlantronic_model_rx_event
 		uint32_t data32[64];   //!< données
 	};
 };
-
+#if 0
 struct atlantronic_motor
 {
 	float pwm;      //!< pwm
@@ -54,7 +56,7 @@ struct atlantronic_motor
 	float w;             //!< vitesse de rotation du moteur (avant reducteur)
 	float theta;         //!< angle du moteur (après reducteur)
 };
-
+#endif
 struct atlantronic_model_state
 {
 	SysBusDevice busdev;
@@ -64,8 +66,9 @@ struct atlantronic_model_state
 	int32_t pwm_dir[PWM_NUM];
 	float enc[ENCODER_NUM];
 	struct atlantronic_can_motor can_motor[6];
-	struct atlantronic_motor motor[PWM_NUM];
+//	struct atlantronic_motor motor[PWM_NUM];
 
+	struct atlantronic_hokuyo_state hokuyo[HOKUYO_NUM];
 	struct atlantronic_dynamixel_state ax12[AX12_NUM];
 
 	struct atlantronic_vect3 pos;
@@ -191,6 +194,12 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	{
 		atlantronic_dynamixel_init(&s->ax12[i], &s->irq[MODEL_IRQ_OUT_USART_AX12], 2+i, DYNAMIXEL_AX12);
 	}
+
+	for(i = 0; i < HOKUYO_NUM; i++)
+	{
+		atlantronic_hokuyo_init(&s->hokuyo[i], &s->irq[MODEL_IRQ_OUT_USART_HOKUYO1+i]);
+	}
+
 #if 0
 	for(i = 0; i < PWM_NUM; i++)
 	{
@@ -316,6 +325,12 @@ static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 			{
 				atlantronic_dynamixel_in_recv_usart(&s->ax12[i], level&0xff);
 			}
+			break;
+		case MODEL_IRQ_IN_USART_HOKUYO1:
+			atlantronic_hokuyo_in_recv_usart(&s->hokuyo[0], level&0xff);
+			break;
+		case MODEL_IRQ_IN_USART_HOKUYO2:
+			atlantronic_hokuyo_in_recv_usart(&s->hokuyo[1], level&0xff);
 			break;
 	}
 /*
