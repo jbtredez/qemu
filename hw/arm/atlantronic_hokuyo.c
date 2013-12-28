@@ -7,7 +7,6 @@
 #include "atlantronic_hokuyo.h"
 #include "atlantronic_tools.h"
 
-#define HOKUYO_MAX_MES                 769
 #define HOKUYO_MED                     384
 #define HOKUYO_PERIOD_TICK         7200000
 #define HOKUYO_MAX_DISTANCE           4000
@@ -15,32 +14,12 @@
 #define HOKUYO_RES              (M_PI/512)
 #define HOKUYO_ERROR                    20
 
-struct atlantronic_hokuyo_state
-{
-	SysBusDevice busdev;
-	MemoryRegion iomem;
-	qemu_irq irq;
-	QEMUTimer* timer;
-	unsigned char rx_buffer[32];
-	unsigned int rx_size;
-	unsigned char tx_buffer[4096];
-	unsigned int tx_size;
-	double mes[HOKUYO_MAX_MES];
-	int scan_ready;
-	int send_scan_when_ready;
-	uint64_t timer_count;
-	float x;
-	float y;
-	float alpha;
-	int clock_scale;
-};
-
 static void atlantronic_hokuyo_send_buffer(struct atlantronic_hokuyo_state* s)
 {
 	int i = 0;
 	for(i = 0; i < s->tx_size; i++)
 	{
-		qemu_set_irq(s->irq, s->tx_buffer[i]);
+		qemu_set_irq(*s->irq_tx, s->tx_buffer[i]);
 	}
 }
 
@@ -58,7 +37,7 @@ static void atlantronic_hokuyo_update(struct atlantronic_hokuyo_state* s)
 	int res = 0;
 	float dist_min = 0;
 
-	struct atlantronic_vect3 pos_robot = { s->x, s->y, s->alpha, cos(s->alpha), sin(s->alpha)};
+	struct atlantronic_vect3 pos_robot = { s->x, s->y, s->theta, cos(s->theta), sin(s->theta)};
 	struct atlantronic_vect3 hokuyo_pos_loc;
 	hokuyo_pos_loc.x =  PARAM_FOO_HOKUYO_X / 65536.0f;
 	hokuyo_pos_loc.y = PARAM_FOO_HOKUYO_Y / 65536.0f;
@@ -178,7 +157,7 @@ static void atlantronic_timer_cb(void* arg)
 	s->clock_scale++;
 }
 
-static void atlantronic_hokuyo_in_recv_usart(struct atlantronic_hokuyo_state *s, int level)
+void atlantronic_hokuyo_in_recv_usart(struct atlantronic_hokuyo_state *s, unsigned char data)
 {
 	if( s->send_scan_when_ready )
 	{
@@ -186,12 +165,10 @@ static void atlantronic_hokuyo_in_recv_usart(struct atlantronic_hokuyo_state *s,
 		return;
 	}
 
-	level &= 0xff;
-
-	s->rx_buffer[s->rx_size] = level;
+	s->rx_buffer[s->rx_size] = data;
 	s->rx_size++;
 
-	if( level == '\n' )
+	if( data == '\n' )
 	{
 		// interpretation du message le message
 		if(strncmp((const char*)s->rx_buffer, "SCIP2.0\n", s->rx_size) == 0)
@@ -247,36 +224,14 @@ static void atlantronic_hokuyo_in_recv_usart(struct atlantronic_hokuyo_state *s,
 	s->rx_size = s->rx_size % sizeof(s->rx_buffer);
 }
 
-static void atlantronic_hokuyo_in_recv(void * opaque, int numPin, int level)
+int atlantronic_hokuyo_init(struct atlantronic_hokuyo_state *s, qemu_irq* irq_tx)
 {
-	struct atlantronic_hokuyo_state *s = opaque;
-
-	switch(numPin)
+	if(irq_tx == NULL)
 	{
-		case HOKUYO_IRQ_IN_USART_DATA:
-			atlantronic_hokuyo_in_recv_usart(s, level);
-			break;
-		case HOKUYO_IRQ_IN_X:
-			s->x = level / 65536.0f;
-			break;
-		case HOKUYO_IRQ_IN_Y:
-			s->y = level / 65536.0f;
-			break;
-		case HOKUYO_IRQ_IN_ALPHA:
-			s->alpha = level * 2 * M_PI / (1<<26);
-			break;
+		return -1;
 	}
-}
 
-static int atlantronic_hokuyo_init(SysBusDevice * dev)
-{
-	struct atlantronic_hokuyo_state *s = OBJECT_CHECK(struct atlantronic_hokuyo_state, dev, "atlantronic-hokuyo");
-
-	sysbus_init_mmio(dev, &s->iomem);
-
-	qdev_init_gpio_out(DEVICE(dev), &s->irq, 1);
-	qdev_init_gpio_in(DEVICE(dev), atlantronic_hokuyo_in_recv, HOKUYO_IRQ_IN_NUM);
-
+	s->irq_tx = irq_tx;
 	s->timer_count = 0;
 	s->timer = qemu_new_timer(vm_clock, 1, atlantronic_timer_cb, s);
 	s->scan_ready = 0;
@@ -286,25 +241,3 @@ static int atlantronic_hokuyo_init(SysBusDevice * dev)
 
     return 0;
 }
-
-static void atlantronic_hokuyo_class_init(ObjectClass *klass, void *data)
-{
-	SysBusDeviceClass *sdc = SYS_BUS_DEVICE_CLASS(klass);
-
-	sdc->init = atlantronic_hokuyo_init;
-}
-
-static TypeInfo atlantronic_hokuyo_info =
-{
-	.name          = "atlantronic-hokuyo",
-	.parent        = TYPE_SYS_BUS_DEVICE,
-	.instance_size = sizeof(struct atlantronic_hokuyo_state),
-	.class_init    = atlantronic_hokuyo_class_init,
-};
-
-static void atlantronic_hokuyo_register_types(void)
-{
-	type_register_static(&atlantronic_hokuyo_info);
-}
-
-type_init(atlantronic_hokuyo_register_types);
