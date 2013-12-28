@@ -3,6 +3,8 @@
 
 #define HOKUYO_MAX_MES                 769
 
+#include "hw/irq.h"
+
 struct atlantronic_hokuyo_state
 {
 	qemu_irq* irq_tx;

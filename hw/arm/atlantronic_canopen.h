@@ -2,6 +2,9 @@
 #define ATLANTRONIC_CANOPEN_H
 
 #include "atlantronic_can.h"
+#include "hw/irq.h"
+
+#define CANOPEN_MAX_NODE          128
 
 enum
 {
@@ -22,10 +25,33 @@ enum
 	CANOPEN_BOOTUP,
 };
 
-typedef void (*atlantronic_canopen_callback)(void* can_interface, void* opaque, struct can_msg msg, int type);
+struct canopen_node;
+struct atlantronic_canopen;
 
-void atlantronic_canopen_tx(void* can_interface, struct can_msg msg);
+typedef void (*atlantronic_canopen_callback)(struct atlantronic_canopen* canopen, struct canopen_node* node, struct can_msg msg, int type);
 
-int atlantronic_canopen_register_node(uint8_t nodeid, void* opaque, atlantronic_canopen_callback callback);
+struct canopen_node
+{
+	uint8_t nodeid;
+	uint8_t state;
+	atlantronic_canopen_callback callback;
+};
+
+struct atlantronic_canopen
+{
+	struct canopen_node* node[CANOPEN_MAX_NODE];
+	qemu_irq* irq_id;
+	qemu_irq* irq_size;
+	qemu_irq* irq_data_l;
+	qemu_irq* irq_data_h;
+};
+
+void atlantronic_canopen_init(struct atlantronic_canopen* s, qemu_irq* irq_id, qemu_irq* irq_size, qemu_irq* irq_data_l, qemu_irq* irq_data_h);
+
+void atlantronic_canopen_write_bus(struct atlantronic_canopen* s, struct can_msg msg);
+
+void atlantronic_canopen_tx(struct atlantronic_canopen* s, struct can_msg msg);
+
+int atlantronic_canopen_register_node(struct atlantronic_canopen* s, uint8_t nodeid, struct canopen_node* node, atlantronic_canopen_callback callback);
 
 #endif
