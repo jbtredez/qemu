@@ -6,16 +6,19 @@
 #include "atlantronic_model.h"
 #include "atlantronic_tools.h"
 #include "atlantronic_can_motor.h"
+#include "atlantronic_canopen.h"
 #include "atlantronic_dynamixel.h"
 #include "atlantronic_hokuyo.h"
+#include "atlantronic_can.h"
 
 #include "kernel/robot_parameters.h"
 #include "foo/control/control.h"
 
-#define PWM_NUM            4
-#define ENCODER_NUM        2
 #define MODEL_FACTOR      10      //!< calcul du modele a 10x la frequence d'utilisation
 
+#define PWM_NUM            4
+#define ENCODER_NUM        3
+#define CAN_MOTOR_NUM      6
 #define AX12_NUM           6
 #define HOKUYO_NUM         2
 
@@ -32,7 +35,7 @@ struct atlantronic_model_rx_event
 		uint32_t data32[64];   //!< données
 	};
 };
-#if 0
+
 struct atlantronic_motor
 {
 	float pwm;      //!< pwm
@@ -56,26 +59,28 @@ struct atlantronic_motor
 	float w;             //!< vitesse de rotation du moteur (avant reducteur)
 	float theta;         //!< angle du moteur (après reducteur)
 };
-#endif
+
 struct atlantronic_model_state
 {
 	SysBusDevice busdev;
 	MemoryRegion iomem;
 	qemu_irq irq[MODEL_IRQ_OUT_NUM];
 	CharDriverState* chr;
-	int32_t pwm_dir[PWM_NUM];
-	float enc[ENCODER_NUM];
-	struct atlantronic_can_motor can_motor[6];
-//	struct atlantronic_motor motor[PWM_NUM];
+	float encoder[ENCODER_NUM];
+	struct can_msg can_msg;
+	struct atlantronic_canopen canopen;
+	struct atlantronic_can_motor can_motor[CAN_MOTOR_NUM];
+	int pwm_dir[PWM_NUM];
+	struct atlantronic_motor motor[PWM_NUM];
 
 	struct atlantronic_hokuyo_state hokuyo[HOKUYO_NUM];
 	struct atlantronic_dynamixel_state ax12[AX12_NUM];
 
-	struct atlantronic_vect3 pos;
-	float v;           //!< vitesse linéaire du robot (mm/s)
-	float w;           //!< vitesse angulaire du robot (rd/s)
+//	struct atlantronic_vect3 pos;
+//	float v;           //!< vitesse linéaire du robot (mm/s)
+//	float w;           //!< vitesse angulaire du robot (rd/s)
 };
-#if 0
+
 static void atlantronic_motor_init(struct atlantronic_motor* motor)
 {
 	motor->pwm  = 0;
@@ -99,7 +104,7 @@ static void atlantronic_motor_init(struct atlantronic_motor* motor)
 	motor->theta = 0;
 	motor->w = 0;
 }
-
+#if 0
 //! Calcule la dérivée de l'état du moteur à partir de l'état et des paramètres du moteur
 //! La dérivée est calculée par unité de temps (dt = 1)
 //!
@@ -190,6 +195,10 @@ static void atlantronic_motor_cancel_update(struct atlantronic_motor* motor)
 static void atlantronic_model_reset(struct atlantronic_model_state* s)
 {
 	int i = 0;
+
+	atlantronic_canopen_init(&s->canopen, &s->irq[MODEL_IRQ_OUT_CAN1_MSG_ID], &s->irq[MODEL_IRQ_OUT_CAN1_MSG_SIZE],
+			&s->irq[MODEL_IRQ_OUT_CAN1_MSG_DATA_L], &s->irq[MODEL_IRQ_OUT_CAN1_MSG_DATA_H]);
+
 	for(i = 0; i < AX12_NUM; i++)
 	{
 		atlantronic_dynamixel_init(&s->ax12[i], &s->irq[MODEL_IRQ_OUT_USART_AX12], 2+i, DYNAMIXEL_AX12);
@@ -200,18 +209,18 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 		atlantronic_hokuyo_init(&s->hokuyo[i], &s->irq[MODEL_IRQ_OUT_USART_HOKUYO1+i]);
 	}
 
-#if 0
+	for(i = 0; i < ENCODER_NUM; i++)
+	{
+		s->encoder[i] = 0;
+	}
+
+
 	for(i = 0; i < PWM_NUM; i++)
 	{
 		s->pwm_dir[i] = 0;
 		atlantronic_motor_init(&s->motor[i]);
 	}
-
-	for(i = 0; i < ENCODER_NUM; i++)
-	{
-		s->enc[i] = 0;
-	}
-
+#if 0
 	s->pos.x = 0;
 	s->pos.y = 700;
 	s->pos.alpha = - M_PI / 2;
@@ -220,17 +229,13 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	s->v = 0;
 	s->w = 0;
 #endif
-	s->can_motor[0].nodeid = 0x20;
-	s->can_motor[1].nodeid = 0x21;
-	s->can_motor[2].nodeid = 0x22;
-	s->can_motor[3].nodeid = 0x23;
-	s->can_motor[4].nodeid = 0x24;
-	s->can_motor[5].nodeid = 0x25;
-	for(i = 0; i < sizeof(s->can_motor) / sizeof(s->can_motor[0]); i++)
+
+	for(i = 0; i < CAN_MOTOR_NUM; i++)
 	{
-		atlantronic_can_motor_connect(&s->can_motor[i]);
+		atlantronic_canopen_register_node(&s->canopen, 0x20+i, &s->can_motor[i].node, atlantronic_can_motor_callback);
 	}
 }
+
 #if 0
 static void atlantronic_model_compute(struct atlantronic_model_state* s)
 {
@@ -317,9 +322,58 @@ static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 {
 	struct atlantronic_model_state *s = opaque;
 	int i = 0;
+	int index;
 
 	switch(numPin)
 	{
+		case MODEL_IRQ_IN_CAN1_MSG_ID:
+			s->can_msg.id = level;
+			atlantronic_canopen_tx(&s->canopen, s->can_msg);
+			break;
+		case MODEL_IRQ_IN_CAN1_MSG_SIZE:
+			s->can_msg.size = level;
+			break;
+		case MODEL_IRQ_IN_CAN1_MSG_DATA_L:
+			s->can_msg._data.low = level;
+			break;
+		case MODEL_IRQ_IN_CAN1_MSG_DATA_H:
+			s->can_msg._data.high = level;
+			break;
+		case MODEL_IRQ_IN_ENCODER1:
+		case MODEL_IRQ_IN_ENCODER2:
+		case MODEL_IRQ_IN_ENCODER3:
+			index = numPin - MODEL_IRQ_IN_ENCODER1;
+			if( index < ENCODER_NUM && index >= 0)
+			{
+				s->encoder[index] = level;
+			}
+			break;
+		case MODEL_IRQ_IN_PWM1:
+		case MODEL_IRQ_IN_PWM2:
+		case MODEL_IRQ_IN_PWM3:
+		case MODEL_IRQ_IN_PWM4:
+			index = numPin - MODEL_IRQ_IN_PWM1;
+			if( index < PWM_NUM && index >= 0)
+			{
+				// mise a jour du moteur i
+				if( ! s->pwm_dir[index])
+				{
+					level = -level;
+				}
+
+				s->motor[index].pwm = level / 65536.0f;
+			}
+			break;
+		case MODEL_IRQ_IN_PWM_DIR1:
+		case MODEL_IRQ_IN_PWM_DIR2:
+		case MODEL_IRQ_IN_PWM_DIR3:
+		case MODEL_IRQ_IN_PWM_DIR4:
+			index = numPin - MODEL_IRQ_IN_PWM_DIR1;
+			if( index < PWM_NUM && index >= 0)
+			{
+				s->pwm_dir[index] = level;
+			}
+			break;
 		case MODEL_IRQ_IN_USART_AX12:
 			for(i=0; i < AX12_NUM; i++)
 			{
@@ -327,51 +381,14 @@ static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 			}
 			break;
 		case MODEL_IRQ_IN_USART_HOKUYO1:
-			atlantronic_hokuyo_in_recv_usart(&s->hokuyo[0], level&0xff);
-			break;
 		case MODEL_IRQ_IN_USART_HOKUYO2:
-			atlantronic_hokuyo_in_recv_usart(&s->hokuyo[1], level&0xff);
+			index = numPin - MODEL_IRQ_IN_USART_HOKUYO1;
+			if( index < HOKUYO_NUM && index >= 0)
+			{
+				atlantronic_hokuyo_in_recv_usart(&s->hokuyo[index], level&0xff);
+			}
 			break;
 	}
-/*
-	if(numPin < ENCODER_NUM)
-	{
-		s->enc[numPin] = level;
-	}
-	else if(numPin < PWM_NUM + ENCODER_NUM)
-	{
-		int id = numPin - ENCODER_NUM;
-		switch(id)
-		{
-			case 0:
-			case 1:
-				if( ! s->pwm_dir[id])
-				{
-					level = -level;
-				}
-
-				s->motor[id].pwm = level / 65536.0f;
-
-				// dans le code, c'est la derniere pwm..., on en profite pour calculer le modele cinematique
-				if(id == 1)
-				{
-					atlantronic_model_compute(s);
-				}
-				break;
-			case 2:
-			case 3:
-				//	qemu_set_irq(s->irq[MODEL_IRQ_I_MOT3], ((int32_t) fabs(s->motor[1].i / s->motor[1].i_max * 65536))&0xffff );
-				//	qemu_set_irq(s->irq[MODEL_IRQ_I_MOT4], ((int32_t) fabs(s->motor[1].i / s->motor[1].i_max * 65536))&0xffff );
-			default:
-				break;
-		}
-	}
-	else if(numPin < 2 * PWM_NUM + ENCODER_NUM)
-	{
-		int id = numPin - PWM_NUM - ENCODER_NUM;
-		s->pwm_dir[id] = level;
-	}
-*/
 }
 
 static int atlantronic_model_can_receive(void *opaque)
