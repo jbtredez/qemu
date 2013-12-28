@@ -1,19 +1,27 @@
 #ifndef ATLANTRONIC_DYNAMIXEL_H
 #define ATLANTRONIC_DYNAMIXEL_H
 
-enum
+
+struct atlantronic_dynamixel_state
 {
-	DYNAMIXEL_IRQ_IN_ID,
-	DYNAMIXEL_IRQ_IN_USART_DATA,
-	DYNAMIXEL_IRQ_IN_DISCONNECT,
-	DYNAMIXEL_IRQ_IN_NUM
+	qemu_irq* irq_tx;
+	unsigned char rx_buffer[1024];
+	unsigned int rx_size;
+	unsigned char tx_buffer[1024];
+	unsigned int tx_size;
+	float theta;
+	int disconnected; //!< deconnexion du bus (defaillance)
+	unsigned char control_table[50]; //!< table de controle, donnes en eeprom et en ram
 };
 
-enum
+enum atlantronic_dynamixel_type
 {
-	DYNAMIXEL_IRQ_OUT_USART_DATA,
-	DYNAMIXEL_IRQ_OUT_USART_TX,
-	DYNAMIXEL_IRQ_OUT_NUM
+	DYNAMIXEL_AX12 = 12,
+	DYNAMIXEL_RX24F = 24,
 };
+
+int atlantronic_dynamixel_init(struct atlantronic_dynamixel_state *s, qemu_irq* irq_tx, unsigned char id, enum atlantronic_dynamixel_type type);
+
+void atlantronic_dynamixel_in_recv_usart(struct atlantronic_dynamixel_state *s, unsigned char data);
 
 #endif

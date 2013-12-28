@@ -6,14 +6,16 @@
 #include "atlantronic_model.h"
 #include "atlantronic_tools.h"
 #include "atlantronic_can_motor.h"
+#include "atlantronic_dynamixel.h"
 
 #include "kernel/robot_parameters.h"
 #include "foo/control/control.h"
 
-#define IRQ_IN_NUM        10
 #define PWM_NUM            4
 #define ENCODER_NUM        2
 #define MODEL_FACTOR      10      //!< calcul du modele a 10x la frequence d'utilisation
+
+#define AX12_NUM           6
 
 #define EVENT_CLOCK_FACTOR         1
 #define EVENT_NEW_OBJECT           2
@@ -63,6 +65,8 @@ struct atlantronic_model_state
 	float enc[ENCODER_NUM];
 	struct atlantronic_can_motor can_motor[6];
 	struct atlantronic_motor motor[PWM_NUM];
+
+	struct atlantronic_dynamixel_state ax12[AX12_NUM];
 
 	struct atlantronic_vect3 pos;
 	float v;           //!< vitesse linéaire du robot (mm/s)
@@ -183,6 +187,10 @@ static void atlantronic_motor_cancel_update(struct atlantronic_motor* motor)
 static void atlantronic_model_reset(struct atlantronic_model_state* s)
 {
 	int i = 0;
+	for(i = 0; i < AX12_NUM; i++)
+	{
+		atlantronic_dynamixel_init(&s->ax12[i], &s->irq[MODEL_IRQ_OUT_USART_AX12], 2+i, DYNAMIXEL_AX12);
+	}
 #if 0
 	for(i = 0; i < PWM_NUM; i++)
 	{
@@ -295,11 +303,22 @@ static void atlantronic_model_compute(struct atlantronic_model_state* s)
 	qemu_set_irq(s->irq[MODEL_IRQ_OUT_Y], (int32_t)(s->pos.y * 65536.0f));
 	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ALPHA], (int32_t)(s->pos.alpha / (2 * M_PI) * (1<<26)));
 }
-
+#endif
 static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 {
-    struct atlantronic_model_state *s = opaque;
+	struct atlantronic_model_state *s = opaque;
+	int i = 0;
 
+	switch(numPin)
+	{
+		case MODEL_IRQ_IN_USART_AX12:
+			for(i=0; i < AX12_NUM; i++)
+			{
+				atlantronic_dynamixel_in_recv_usart(&s->ax12[i], level&0xff);
+			}
+			break;
+	}
+/*
 	if(numPin < ENCODER_NUM)
 	{
 		s->enc[numPin] = level;
@@ -337,8 +356,9 @@ static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 		int id = numPin - PWM_NUM - ENCODER_NUM;
 		s->pwm_dir[id] = level;
 	}
+*/
 }
-#endif
+
 static int atlantronic_model_can_receive(void *opaque)
 {
 	return sizeof(struct atlantronic_model_rx_event);
@@ -386,8 +406,8 @@ static int atlantronic_model_init(SysBusDevice * dev)
 
 	sysbus_init_mmio(dev, &s->iomem);
 
-	//qdev_init_gpio_out(DEVICE(dev), s->irq, MODEL_IRQ_OUT_NUM);
-	//qdev_init_gpio_in(DEVICE(dev), atlantronic_model_in_recv, IRQ_IN_NUM);
+	qdev_init_gpio_out(DEVICE(dev), s->irq, MODEL_IRQ_OUT_NUM);
+	qdev_init_gpio_in(DEVICE(dev), atlantronic_model_in_recv, MODEL_IRQ_IN_NUM);
 
 	s->chr = qemu_chr_find("foo_model");
 	if( s->chr == NULL)

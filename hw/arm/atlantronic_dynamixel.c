@@ -3,7 +3,6 @@
 #include "hw/boards.h"
 #include "hw/arm/arm.h"
 #include "atlantronic_cpu.h"
-#include "kernel/robot_parameters.h"
 #include "atlantronic_dynamixel.h"
 
 #define DYNAMIXEL_PERIOD_TICK         7200000
@@ -70,51 +69,14 @@ enum
 	DYNAMIXEL_PUNCH_H
 };
 
-struct atlantronic_dynamixel_state
-{
-	SysBusDevice busdev;
-	MemoryRegion iomem;
-	qemu_irq irq[DYNAMIXEL_IRQ_OUT_NUM];
-//	QEMUTimer* timer; // TODO timer pour mise a jour cinematique dynamixel
-	unsigned char rx_buffer[1024];
-	unsigned int rx_size;
-	unsigned char tx_buffer[1024];
-	unsigned int tx_size;
-//	uint64_t timer_count;
-	float theta;
-//	int clock_scale;
-	int disconnected; //!< deconnexion du bus (defaillance)
-	unsigned char control_table[50]; //!< table de controle, donnes en eeprom et en ram
-};
-
 static void atlantronic_dynamixel_send_buffer(struct atlantronic_dynamixel_state* s)
 {
 	int i = 0;
 	for(i = 0; i < s->tx_size; i++)
 	{
-		qemu_set_irq(s->irq[DYNAMIXEL_IRQ_OUT_USART_TX], s->tx_buffer[i]);
+		qemu_set_irq(*s->irq_tx, s->tx_buffer[i]);
 	}
 }
-#if 0
-// mise a jour des mesures
-static void atlantronic_dynamixel_update(struct atlantronic_dynamixel_state* s)
-{
-	(void) s;
-}
-
-static void atlantronic_timer_cb(void* arg)
-{
-	struct atlantronic_dynamixel_state *s = arg;
-
-	s->timer_count += DYNAMIXEL_PERIOD_TICK;
-	qemu_mod_timer(s->timer, s->timer_count);
-	if( s->clock_scale >= system_clock_scale)
-	{
-		s->clock_scale = 0;
-	}
-	s->clock_scale++;
-}
-#endif
 
 static uint8_t atlantronic_dynamixel_checksum(uint8_t* buffer, uint8_t size)
 {
@@ -130,7 +92,7 @@ static uint8_t atlantronic_dynamixel_checksum(uint8_t* buffer, uint8_t size)
 	return checksum;
 }
 
-static void atlantronic_dynamixel_in_recv_usart(struct atlantronic_dynamixel_state *s, int level)
+void atlantronic_dynamixel_in_recv_usart(struct atlantronic_dynamixel_state *s, unsigned char data)
 {
 	int msgSize = -1;
 	int i = 0;
@@ -141,15 +103,13 @@ static void atlantronic_dynamixel_in_recv_usart(struct atlantronic_dynamixel_sta
 		return;
 	}
 
-	level &= 0xff;
-
-	s->rx_buffer[s->rx_size] = level;
+	s->rx_buffer[s->rx_size] = data;
 	s->rx_size++;
 
 	if(s->rx_size == 1 || s->rx_size == 2)
 	{
 		// les 2 premiers octets doivent etre 0xff
-		if(level != 0xff)
+		if(data != 0xff)
 		{
 			s->rx_size = 0;
 			return;
@@ -246,44 +206,26 @@ static void atlantronic_dynamixel_in_recv_usart(struct atlantronic_dynamixel_sta
 	s->rx_size = s->rx_size % sizeof(s->rx_buffer);
 }
 
-static void atlantronic_dynamixel_in_recv(void * opaque, int numPin, int level)
+int atlantronic_dynamixel_init(struct atlantronic_dynamixel_state *s, qemu_irq* irq_tx, unsigned char id, enum atlantronic_dynamixel_type type)
 {
-	struct atlantronic_dynamixel_state *s = opaque;
-
-	switch(numPin)
+	if( irq_tx == NULL)
 	{
-		case DYNAMIXEL_IRQ_IN_ID:
-			s->control_table[DYNAMIXEL_ID] = (level & 0xff);
-			break;
-		case DYNAMIXEL_IRQ_IN_USART_DATA:
-			atlantronic_dynamixel_in_recv_usart(s, level);
-			break;
-		case DYNAMIXEL_IRQ_IN_DISCONNECT:
-			// TODO ne plus repondre sur l'usart
-			break;
+		return -1;
 	}
 
-	// on transmet le message sur le reste du bus
-	qemu_set_irq(s->irq[DYNAMIXEL_IRQ_OUT_USART_DATA], level);
-}
+	if( id == 0 || id >= 0xfe)
+	{
+		return -1;
+	}
 
-static int atlantronic_dynamixel_init(SysBusDevice * dev, struct atlantronic_dynamixel_state *s, int type)
-{
-	sysbus_init_mmio(dev, &s->iomem);
-
-	qdev_init_gpio_out(DEVICE(dev), s->irq, DYNAMIXEL_IRQ_OUT_NUM);
-	qdev_init_gpio_in(DEVICE(dev), atlantronic_dynamixel_in_recv, DYNAMIXEL_IRQ_IN_NUM);
-
-//	s->timer_count = 0;
-//	s->timer = qemu_new_timer(vm_clock, 1, atlantronic_timer_cb, s);
+	s->irq_tx = irq_tx;
 	s->rx_size = 0;
-//	s->clock_scale = 1;
 	s->disconnected = 0;
 
 	s->control_table[DYNAMIXEL_MODEL_NUMBER_L]            = type;
 	s->control_table[DYNAMIXEL_MODEL_NUMBER_H]            = 0;
 	s->control_table[DYNAMIXEL_FIRMWARE_VERSION]          = 0;
-	s->control_table[DYNAMIXEL_ID]                        = 0x01;
+	s->control_table[DYNAMIXEL_ID]                        = id;
 	s->control_table[DYNAMIXEL_BAUD_RATE]                 = 0x01;
 	s->control_table[DYNAMIXEL_RETURN_DELAY_TIME]         = 0xfa;
 	s->control_table[DYNAMIXEL_CW_ANGLE_LIMIT_L]          = 0;
@@ -356,51 +298,3 @@ static int atlantronic_dynamixel_init(SysBusDevice * dev, struct atlantronic_dyn
 
     return 0;
 }
-
-static int atlantronic_ax12_init(SysBusDevice * dev)
-{
-	struct atlantronic_dynamixel_state *s = OBJECT_CHECK(struct atlantronic_dynamixel_state, dev, "atlantronic-ax12");
-	return atlantronic_dynamixel_init(dev, s, 12);
-}
-
-static int atlantronic_rx24f_init(SysBusDevice * dev)
-{
-	struct atlantronic_dynamixel_state *s = OBJECT_CHECK(struct atlantronic_dynamixel_state, dev, "atlantronic-rx24f");
-	return atlantronic_dynamixel_init(dev, s, 24);
-}
-
-static void atlantronic_ax12_class_init(ObjectClass *klass, void *data)
-{
-	SysBusDeviceClass *sdc = SYS_BUS_DEVICE_CLASS(klass);
-	sdc->init = atlantronic_ax12_init;
-}
-
-static void atlantronic_rx24f_class_init(ObjectClass *klass, void *data)
-{
-	SysBusDeviceClass *sdc = SYS_BUS_DEVICE_CLASS(klass);
-	sdc->init = atlantronic_rx24f_init;
-}
-
-static TypeInfo atlantronic_ax12_info =
-{
-	.name          = "atlantronic-ax12",
-	.parent        = TYPE_SYS_BUS_DEVICE,
-	.instance_size = sizeof(struct atlantronic_dynamixel_state),
-	.class_init    = atlantronic_ax12_class_init,
-};
-
-static TypeInfo atlantronic_rx24f_info =
-{
-	.name          = "atlantronic-rx24f",
-	.parent        = TYPE_SYS_BUS_DEVICE,
-	.instance_size = sizeof(struct atlantronic_dynamixel_state),
-	.class_init    = atlantronic_rx24f_class_init,
-};
-
-static void atlantronic_dynamixel_register_types(void)
-{
-	type_register_static(&atlantronic_ax12_info);
-	type_register_static(&atlantronic_rx24f_info);
-}
-
-type_init(atlantronic_dynamixel_register_types);
