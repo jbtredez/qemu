@@ -3,16 +3,8 @@
 #include "hw/arm/arm.h"
 #include "atlantronic_cpu.h"
 #include "atlantronic_can.h"
-#include "atlantronic_canopen.h"
 
 #define EVENT_NUM                  1024
-
-enum
-{
-	ATLANTRONIC_CAN_IRQ_TX0,
-	ATLANTRONIC_CAN_IRQ_RX0,
-	ATLANTRONIC_CAN_IRQ_MAX,
-};
 
 struct atlantronic_can_state
 {
@@ -24,7 +16,7 @@ struct atlantronic_can_state
 	uint32_t event_end;
 	int rx_complete;
 	struct can_msg event[EVENT_NUM];
-	qemu_irq irq[ATLANTRONIC_CAN_IRQ_MAX];
+	qemu_irq irq[ATLANTRONIC_CAN_IRQ_OUT_MAX];
 };
 
 static int atlantronic_can_update_rx(struct atlantronic_can_state* s);
@@ -63,9 +55,12 @@ static void atlantronic_can_write_tx_mailbox(struct atlantronic_can_state* s, hw
 				// transmission ok
 				// TODO on suppose i == 0
 				s->can.TSR |= CAN_TSR_RQCP0 | CAN_TSR_TXOK0;
-				qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_TX0], 1);
+				qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_OUT_TX0], 1);
+				qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_OUT_CAN1_MSG_DATA_L], msg._data.low);
+				qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_OUT_CAN1_MSG_DATA_H], msg._data.high);
+				qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_OUT_CAN1_MSG_SIZE], msg.size);
+				qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_OUT_CAN1_MSG_ID], msg.id); // envoi de l'id en dernier, indique la fin du message
 
-				atlantronic_canopen_tx(s, msg);
 				atlantronic_can_update_rx(s);
 			}
 			s->can.sTxMailBox[i].TIR = val;
@@ -139,7 +134,7 @@ static void atlantronic_can_write(void *opaque, hwaddr offset, uint64_t val, uns
 			if(val & CAN_TSR_RQCP0)
 			{
 				s->can.TSR &= ~CAN_TSR_RQCP0;
-				qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_TX0], 0);
+				qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_OUT_TX0], 0);
 			}
 			break;
 		case offsetof(CAN_TypeDef, RF0R):
@@ -152,7 +147,7 @@ static void atlantronic_can_write(void *opaque, hwaddr offset, uint64_t val, uns
 				int res = atlantronic_can_update_rx(s);
 				if( ! res )
 				{
-					qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_RX0], 0);
+					qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_OUT_RX0], 0);
 				}
 			}
 			break;
@@ -232,19 +227,6 @@ static uint64_t atlantronic_can_read(void *opaque, hwaddr offset, unsigned size)
 	return res;	
 }
 
-void atlantronic_can_rx(void *opaque, struct can_msg msg)
-{
-	struct atlantronic_can_state* s = opaque;
-	qemu_mutex_lock(&s->event_mutex);
-	if((s->event_end + 1) % EVENT_NUM != s->event_start)
-	{
-		// il reste de la place
-		s->event[s->event_end] = msg;
-		s->event_end = (s->event_end + 1) % EVENT_NUM;
-	}
-	qemu_mutex_unlock(&s->event_mutex);
-}
-
 static int atlantronic_can_update_rx(struct atlantronic_can_state* s)
 {
 	struct can_msg msg;
@@ -267,12 +249,41 @@ static int atlantronic_can_update_rx(struct atlantronic_can_state* s)
 		s->can.sFIFOMailBox[0].RDTR = msg.size & 0x0f;
 		s->can.RF0R |= CAN_RF0R_FMP0;
 
-		qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_RX0], 1);
+		qemu_set_irq(s->irq[ATLANTRONIC_CAN_IRQ_OUT_RX0], 1);
 		res = 1;
 	}
 	qemu_mutex_unlock(&s->event_mutex);
 
 	return res;
+}
+
+static void atlantronic_can_in_recv(void * opaque, int numPin, int level)
+{
+	struct atlantronic_can_state *s = opaque;
+
+	qemu_mutex_lock(&s->event_mutex);
+	if((s->event_end + 1) % EVENT_NUM != s->event_start)
+	{
+		// il reste de la place
+		switch(numPin)
+		{
+			case ATLANTRONIC_CAN_IRQ_IN_CAN1_MSG_ID:
+				s->event[s->event_end].id = level;
+				// fin du message, on l'envoi
+				s->event_end = (s->event_end + 1) % EVENT_NUM;
+				break;
+			case ATLANTRONIC_CAN_IRQ_IN_CAN1_MSG_SIZE:
+				s->event[s->event_end].size = level;
+				break;
+			case ATLANTRONIC_CAN_IRQ_IN_CAN1_MSG_DATA_L:
+				s->event[s->event_end]._data.low = level;
+				break;
+			case ATLANTRONIC_CAN_IRQ_IN_CAN1_MSG_DATA_H:
+				s->event[s->event_end]._data.high = level;
+				break;
+		}
+	}
+	qemu_mutex_unlock(&s->event_mutex);
 }
 
 static void atlantronic_can_reset(CAN_TypeDef* can)
@@ -329,8 +340,10 @@ static int atlantronic_can_init(SysBusDevice * dev)
 
 	memory_region_init_io(&s->iomem, OBJECT(s), &atlantronic_can_ops, s, "atlantronic_can", 0x400);
 	sysbus_init_mmio(dev, &s->iomem);
-	sysbus_init_irq(dev, &s->irq[ATLANTRONIC_CAN_IRQ_TX0]);
-	sysbus_init_irq(dev, &s->irq[ATLANTRONIC_CAN_IRQ_RX0]);
+
+	qdev_init_gpio_out(DEVICE(dev), s->irq, ATLANTRONIC_CAN_IRQ_OUT_MAX);
+	qdev_init_gpio_in(DEVICE(dev), atlantronic_can_in_recv, ATLANTRONIC_CAN_IRQ_IN_MAX);
+
 	s->rx_complete = 1;
 
 	s->event_start = 0;

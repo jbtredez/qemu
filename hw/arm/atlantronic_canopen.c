@@ -1,7 +1,6 @@
 #include "atlantronic_canopen.h"
 #include <stdio.h>
 
-#define CANOPEN_MAX_NODE          128
 
 enum
 {
@@ -12,29 +11,30 @@ enum
 	NMT_RESET_COM          =  0x82,
 };
 
-struct canopen_node
-{
-	uint8_t nodeid;
-	uint8_t state;
-	void* opaque;
-	void* can_interface;
-	atlantronic_canopen_callback callback;
-};
+static void atlantronic_canopen_set_nmt(struct atlantronic_canopen* s, int nodeid, uint8_t new_state);
 
-struct canopen_node atlantronic_canopen_node[128];
-static void atlantronic_canopen_set_nmt(void* can_interface, int nodeid, uint8_t new_state);
-static void init_canopen(void) __attribute__((constructor));
-
-static void init_canopen(void)
+void atlantronic_canopen_init(struct atlantronic_canopen* s, qemu_irq* irq_id, qemu_irq* irq_size, qemu_irq* irq_data_l, qemu_irq* irq_data_h)
 {
 	int i = 0;
 	for(i = 0; i < CANOPEN_MAX_NODE; i++)
 	{
-		atlantronic_canopen_node[i].nodeid = 0;
+		s->node[i] = NULL;
 	}
+	s->irq_id = irq_id;
+	s->irq_size = irq_size;
+	s->irq_data_l = irq_data_l;
+	s->irq_data_h = irq_data_h;
 }
 
-void atlantronic_canopen_tx(void* can_interface, struct can_msg msg)
+void atlantronic_canopen_write_bus(struct atlantronic_canopen* s, struct can_msg msg)
+{
+	qemu_set_irq(*s->irq_data_l, msg._data.low);
+	qemu_set_irq(*s->irq_data_h, msg._data.high);
+	qemu_set_irq(*s->irq_size, msg.size);
+	qemu_set_irq(*s->irq_id, msg.id); // envoi de l'id en dernier, indique la fin du message
+}
+
+void atlantronic_canopen_tx(struct atlantronic_canopen* s, struct can_msg msg)
 {
 	unsigned int nodeid = 0;
 	int type = 0;
@@ -76,21 +76,21 @@ void atlantronic_canopen_tx(void* can_interface, struct can_msg msg)
 				// tout les noeuds
 				for(i = 1; i < CANOPEN_MAX_NODE; i++)
 				{
-					atlantronic_canopen_set_nmt(can_interface, i, new_state);
+					atlantronic_canopen_set_nmt(s, i, new_state);
 					// appel de la callback pour les actions specifiques a faire
-					if(atlantronic_canopen_node[i].nodeid == i)
+					if(s->node[i])
 					{
-						atlantronic_canopen_node[i].callback(can_interface, atlantronic_canopen_node[i].opaque, msg, type);
+						s->node[i]->callback(s, s->node[i], msg, type);
 					}
 				}
 			}
 			else
 			{
-				atlantronic_canopen_set_nmt(can_interface, nodeid, new_state);
+				atlantronic_canopen_set_nmt(s, nodeid, new_state);
 				// appel de la callback pour les actions specifiques a faire
-				if(nodeid > 0 && nodeid < CANOPEN_MAX_NODE && atlantronic_canopen_node[nodeid].nodeid == nodeid)
+				if(nodeid > 0 && nodeid < CANOPEN_MAX_NODE && s->node[nodeid])
 				{
-					atlantronic_canopen_node[nodeid].callback(can_interface, atlantronic_canopen_node[nodeid].opaque, msg, type);
+					s->node[nodeid]->callback(s, s->node[nodeid], msg, type);
 				}
 			}
 		}
@@ -107,9 +107,9 @@ void atlantronic_canopen_tx(void* can_interface, struct can_msg msg)
 		for(i = 1; i < CANOPEN_MAX_NODE; i++)
 		{
 			// appel de la callback pour les actions specifiques a faire
-			if(atlantronic_canopen_node[i].nodeid == i)
+			if(s->node[i])
 			{
-				atlantronic_canopen_node[i].callback(can_interface, atlantronic_canopen_node[i].opaque, msg, type);
+				s->node[i]->callback(s, s->node[i], msg, type);
 			}
 		}
 	}
@@ -117,16 +117,16 @@ void atlantronic_canopen_tx(void* can_interface, struct can_msg msg)
 	{
 		if(nodeid > 0)
 		{
-			if(atlantronic_canopen_node[nodeid].nodeid == nodeid)
+			if(s->node[nodeid])
 			{
 				// noeud parametre
-				atlantronic_canopen_node[nodeid].callback(can_interface, atlantronic_canopen_node[nodeid].opaque, msg, type);
+				s->node[nodeid]->callback(s, s->node[nodeid], msg, type);
 			}
 		}
 	}
 }
 
-void atlantronic_canopen_set_nmt(void* can_interface, int nodeid, uint8_t new_state)
+void atlantronic_canopen_set_nmt(struct atlantronic_canopen* s, int nodeid, uint8_t new_state)
 {
 	if(nodeid <= 0 || nodeid >= CANOPEN_MAX_NODE)
 	{
@@ -134,32 +134,30 @@ void atlantronic_canopen_set_nmt(void* can_interface, int nodeid, uint8_t new_st
 	}
 
 	// noeud parametre
-	if(atlantronic_canopen_node[nodeid].nodeid == nodeid)
+	if(s->node[nodeid])
 	{
-		atlantronic_canopen_node[nodeid].state = new_state;
+		s->node[nodeid]->state = new_state;
 		if( new_state == NMT_RESET_COM || new_state == NMT_RESET_AP)
 		{
-			atlantronic_canopen_node[nodeid].can_interface = can_interface;
 			// envoi du bootup
 			struct can_msg msg;
 			msg.id = 0x700 + (uint32_t)nodeid;
 			msg.size = 0;
-			atlantronic_can_rx(can_interface, msg);
+			atlantronic_canopen_write_bus(s, msg);
 		}
 	}
 }
 
-int atlantronic_canopen_register_node(uint8_t nodeid, void* opaque, atlantronic_canopen_callback callback)
+int atlantronic_canopen_register_node(struct atlantronic_canopen* s, uint8_t nodeid, struct canopen_node* node, atlantronic_canopen_callback callback)
 {
 	int res = -1;
 
 	if(nodeid > 0 && nodeid < CANOPEN_MAX_NODE)
 	{
-		atlantronic_canopen_node[nodeid].nodeid = nodeid;
-		atlantronic_canopen_node[nodeid].state = NMT_RESET_COM;
-		atlantronic_canopen_node[nodeid].opaque = opaque;
-		atlantronic_canopen_node[nodeid].can_interface = NULL;
-		atlantronic_canopen_node[nodeid].callback = callback;
+		s->node[nodeid] = node;
+		s->node[nodeid]->nodeid = nodeid;
+		s->node[nodeid]->state = NMT_RESET_COM;
+		s->node[nodeid]->callback = callback;
 		res = 0;
 	}
 
