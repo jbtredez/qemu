@@ -143,7 +143,10 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	sysbus_connect_irq(SYS_BUS_DEVICE(usb), 0, pic[OTG_FS_IRQn]);
 
 	// modele
-	/*DeviceState* model = */sysbus_create_simple("atlantronic-model", 0, NULL);
+	DeviceState* model = sysbus_create_simple("atlantronic-model", 0, NULL);
+	qdev_connect_gpio_out(usart6, 3, qdev_get_gpio_in(model, MODEL_IRQ_IN_USART_AX12));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_USART_AX12, qdev_get_gpio_in(usart6, 0));
+
 #if 0
 	qdev_connect_gpio_out(tim2, 0, qdev_get_gpio_in(model, 0)); // encodeur 1 (droite)
 	qdev_connect_gpio_out(tim4, 0, qdev_get_gpio_in(model, 1)); // encodeur 2 (gauche)
@@ -177,38 +180,6 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	//qdev_connect_gpio_out(model, MODEL_IRQ_OUT_Y, qdev_get_gpio_in(hokuyo2, HOKUYO_IRQ_IN_Y));
 	//qdev_connect_gpio_out(model, MODEL_IRQ_OUT_ALPHA, qdev_get_gpio_in(hokuyo2, HOKUYO_IRQ_IN_ALPHA));
 	qdev_connect_gpio_out(hokuyo2, 0, qdev_get_gpio_in(usart2, 0));
-
-	// ax12
-	DeviceState* ax12_2 = sysbus_create_simple("atlantronic-ax12", 0, NULL);
-	DeviceState* ax12_3 = sysbus_create_simple("atlantronic-ax12", 0, NULL);
-	DeviceState* ax12_4 = sysbus_create_simple("atlantronic-ax12", 0, NULL);
-	DeviceState* ax12_5 = sysbus_create_simple("atlantronic-ax12", 0, NULL);
-	DeviceState* ax12_6 = sysbus_create_simple("atlantronic-ax12", 0, NULL);
-	DeviceState* ax12_7 = sysbus_create_simple("atlantronic-ax12", 0, NULL);
-
-	// id des ax12
-	qemu_set_irq(qdev_get_gpio_in(ax12_2, DYNAMIXEL_IRQ_IN_ID), 2);
-	qemu_set_irq(qdev_get_gpio_in(ax12_3, DYNAMIXEL_IRQ_IN_ID), 3);
-	qemu_set_irq(qdev_get_gpio_in(ax12_4, DYNAMIXEL_IRQ_IN_ID), 4);
-	qemu_set_irq(qdev_get_gpio_in(ax12_5, DYNAMIXEL_IRQ_IN_ID), 5);
-	qemu_set_irq(qdev_get_gpio_in(ax12_6, DYNAMIXEL_IRQ_IN_ID), 6);
-	qemu_set_irq(qdev_get_gpio_in(ax12_7, DYNAMIXEL_IRQ_IN_ID), 7);
-
-	// branchement ax12 sur le bus - "fil rx"
-	qdev_connect_gpio_out(usart6, 3, qdev_get_gpio_in(ax12_2, DYNAMIXEL_IRQ_IN_USART_DATA));
-	qdev_connect_gpio_out(ax12_2, DYNAMIXEL_IRQ_OUT_USART_DATA, qdev_get_gpio_in(ax12_3, DYNAMIXEL_IRQ_IN_USART_DATA));
-	qdev_connect_gpio_out(ax12_3, DYNAMIXEL_IRQ_OUT_USART_DATA, qdev_get_gpio_in(ax12_4, DYNAMIXEL_IRQ_IN_USART_DATA));
-	qdev_connect_gpio_out(ax12_4, DYNAMIXEL_IRQ_OUT_USART_DATA, qdev_get_gpio_in(ax12_5, DYNAMIXEL_IRQ_IN_USART_DATA));
-	qdev_connect_gpio_out(ax12_5, DYNAMIXEL_IRQ_OUT_USART_DATA, qdev_get_gpio_in(ax12_6, DYNAMIXEL_IRQ_IN_USART_DATA));
-	qdev_connect_gpio_out(ax12_6, DYNAMIXEL_IRQ_OUT_USART_DATA, qdev_get_gpio_in(ax12_7, DYNAMIXEL_IRQ_IN_USART_DATA));
-
-	// branchement ax12 sur le bus - "fil tx"
-	qdev_connect_gpio_out(ax12_2, DYNAMIXEL_IRQ_OUT_USART_TX, qdev_get_gpio_in(usart6, 0));
-	qdev_connect_gpio_out(ax12_3, DYNAMIXEL_IRQ_OUT_USART_TX, qdev_get_gpio_in(usart6, 0));
-	qdev_connect_gpio_out(ax12_4, DYNAMIXEL_IRQ_OUT_USART_TX, qdev_get_gpio_in(usart6, 0));
-	qdev_connect_gpio_out(ax12_5, DYNAMIXEL_IRQ_OUT_USART_TX, qdev_get_gpio_in(usart6, 0));
-	qdev_connect_gpio_out(ax12_6, DYNAMIXEL_IRQ_OUT_USART_TX, qdev_get_gpio_in(usart6, 0));
-	qdev_connect_gpio_out(ax12_7, DYNAMIXEL_IRQ_OUT_USART_TX, qdev_get_gpio_in(usart6, 0));
 }
 
 static QEMUMachine atlantronic_discovery =
