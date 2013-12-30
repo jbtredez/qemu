@@ -1,14 +1,14 @@
 #include <stdlib.h>
+#include <math.h>
 #include "hw/sysbus.h"
 #include "hw/boards.h"
 #include "hw/arm/arm.h"
 #include "atlantronic_cpu.h"
-#include "kernel/robot_parameters.h"
+#include "kernel/rcc.h"
 #include "atlantronic_hokuyo.h"
-#include "atlantronic_tools.h"
 
 #define HOKUYO_MED                     384
-#define HOKUYO_PERIOD_TICK         7200000
+#define HOKUYO_PERIOD_TICK     (RCC_SYSCLK/10)  // 100ms
 #define HOKUYO_MAX_DISTANCE           4000
 
 #define HOKUYO_RES              (M_PI/512)
@@ -37,16 +37,9 @@ static void atlantronic_hokuyo_update(struct atlantronic_hokuyo_state* s)
 	int res = 0;
 	float dist_min = 0;
 
-	struct atlantronic_vect3 pos_robot = { s->x, s->y, s->theta, cos(s->theta), sin(s->theta)};
-	struct atlantronic_vect3 hokuyo_pos_loc;
-	hokuyo_pos_loc.x =  PARAM_FOO_HOKUYO_X / 65536.0f;
-	hokuyo_pos_loc.y = PARAM_FOO_HOKUYO_Y / 65536.0f;
-	hokuyo_pos_loc.alpha = PARAM_FOO_HOKUYO_ALPHA * 2 * M_PI / (1<<26);
-	hokuyo_pos_loc.ca = cos(hokuyo_pos_loc.alpha);
-	hokuyo_pos_loc.sa = sin(hokuyo_pos_loc.alpha);
 	struct atlantronic_vect3 hokuyo_pos_abs;
 
-	atlantronic_vect3_loc_to_abs(&pos_robot, &hokuyo_pos_loc, &hokuyo_pos_abs);
+	atlantronic_vect3_loc_to_abs(&s->pos_robot, &s->pos_hokuyo, &hokuyo_pos_abs);
 
 	struct atlantronic_vect2 a = { hokuyo_pos_abs.x, hokuyo_pos_abs.y};
 	struct atlantronic_vect2 b;
@@ -54,8 +47,8 @@ static void atlantronic_hokuyo_update(struct atlantronic_hokuyo_state* s)
 
 	for(i = 0; i < HOKUYO_MAX_MES; i++)
 	{
-		b.x = a.x + HOKUYO_MAX_DISTANCE * cos(hokuyo_pos_abs.alpha + (i - HOKUYO_MED) * HOKUYO_RES);
-		b.y = a.y + HOKUYO_MAX_DISTANCE * sin(hokuyo_pos_abs.alpha + (i - HOKUYO_MED) * HOKUYO_RES);
+		b.x = a.x + HOKUYO_MAX_DISTANCE * cos(hokuyo_pos_abs.theta + (i - HOKUYO_MED) * HOKUYO_RES);
+		b.y = a.y + HOKUYO_MAX_DISTANCE * sin(hokuyo_pos_abs.theta + (i - HOKUYO_MED) * HOKUYO_RES);
 		dist_min = HOKUYO_MAX_DISTANCE;
 
 		for(j = 0; j < atlantronic_static_obj_count; j++)
@@ -224,13 +217,14 @@ void atlantronic_hokuyo_in_recv_usart(struct atlantronic_hokuyo_state *s, unsign
 	s->rx_size = s->rx_size % sizeof(s->rx_buffer);
 }
 
-int atlantronic_hokuyo_init(struct atlantronic_hokuyo_state *s, qemu_irq* irq_tx)
+int atlantronic_hokuyo_init(struct atlantronic_hokuyo_state *s, qemu_irq* irq_tx, struct atlantronic_vect3 pos_hokuyo)
 {
 	if(irq_tx == NULL)
 	{
 		return -1;
 	}
 
+	s->pos_hokuyo = pos_hokuyo;
 	s->irq_tx = irq_tx;
 	s->timer_count = 0;
 	s->timer = qemu_new_timer(vm_clock, 1, atlantronic_timer_cb, s);

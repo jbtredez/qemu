@@ -43,15 +43,15 @@ void atlantronic_move_object(int id, struct atlantronic_vect2 origin, struct atl
 	if( id < atlantronic_static_obj_count )
 	{
 		struct atlantronic_vect2* pt = atlantronic_static_obj[id].pt;
-		delta.ca = cos(delta.alpha);
-		delta.sa = sin(delta.alpha);
+		float c = cos(delta.theta);
+		float s = sin(delta.theta);
 
 		for( i = 0; i < atlantronic_static_obj[id].size; i++)
 		{
 			float dx = pt[i].x - origin.x;
 			float dy = pt[i].y - origin.y;
-			pt[i].x = origin.x + dx * delta.ca - dy * delta.sa + delta.x;
-			pt[i].y = origin.y + dx * delta.sa + dy * delta.ca + delta.y;
+			pt[i].x = origin.x + dx * c - dy * s + delta.x;
+			pt[i].y = origin.y + dx * s + dy * c + delta.y;
 		}
 	}
 }
@@ -74,19 +74,35 @@ float sat(float x, float min, float max)
 //! origin : origine du repère local dans le repère absolu
 void atlantronic_vect2_loc_to_abs(const struct atlantronic_vect3 *origin, const struct atlantronic_vect2 *pos_in, struct atlantronic_vect2 *pos_out)
 {
-	pos_out->x = origin->x + origin->ca * pos_in->x - origin->sa * pos_in->y;
-	pos_out->y = origin->y + origin->sa * pos_in->x + origin->ca * pos_in->y;
+	float c = cosf(origin->theta);
+	float s = sinf(origin->theta);
+
+	pos_out->x = origin->x + c * pos_in->x - s * pos_in->y;
+	pos_out->y = origin->y + s * pos_in->x + c * pos_in->y;
 }
 
 //! changement de repere du repère local au repere absolu
 //! origin : origine du repère local dans le repère absolu
 void atlantronic_vect3_loc_to_abs(const struct atlantronic_vect3 *origin, const struct atlantronic_vect3 *pos_in, struct atlantronic_vect3 *pos_out)
 {
-	pos_out->x = origin->x + origin->ca * pos_in->x - origin->sa * pos_in->y;
-	pos_out->y = origin->y + origin->sa * pos_in->x + origin->ca * pos_in->y;
-	pos_out->alpha = origin->alpha + pos_in->alpha;
-	pos_out->ca = cos(pos_out->alpha);
-	pos_out->sa = sin(pos_out->alpha);
+	float c = cosf(origin->theta);
+	float s = sinf(origin->theta);
+
+	pos_out->x = origin->x + c * pos_in->x - s * pos_in->y;
+	pos_out->y = origin->y + s * pos_in->x + c * pos_in->y;
+	pos_out->theta = origin->theta + pos_in->theta;
+}
+
+struct atlantronic_vect3 atlantronic_vect3_loc_to_abs_speed(const double theta, const struct atlantronic_vect3* speed)
+{
+	struct atlantronic_vect3 res;
+	float c = cosf(theta);
+	float s = sinf(theta);
+	res.x = c * speed->x - s * speed->y;
+	res.y = s * speed->x + c * speed->y;
+	res.theta = speed->theta;
+
+	return res;
 }
 
 //! calcule l'intersection h entre deux segments [a b] et [c d]

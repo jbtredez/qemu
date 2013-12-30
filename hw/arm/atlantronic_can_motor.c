@@ -12,13 +12,30 @@
 #define CAN_MOTOR_CMD_V    0x93      //!< commande de vitesse
 #define CAN_MOTOR_CMD_LA   0xb4      //!< commande de position
 
-#define ENCODER_RESOLUTION         3000
+void atlantronic_can_motor_init(struct atlantronic_can_motor* s, float outputGain)
+{
+	s->raw_pos = 0;
+	s->raw_v = 0;
+	s->pos = 0;
+	s->v = 0;
+	s->speedCmd = 0;
+	s->outputGain = outputGain;
+}
 
+void atlantronic_can_motor_update(struct atlantronic_can_motor* motor, float dt)
+{
+	motor->raw_v = (MOTOR_ENCODER_RESOLUTION * motor->speedCmd) / 60;
+	motor->raw_pos += motor->raw_v * dt;
+	motor->dtSync += dt;
+	motor->pos = motor->outputGain * motor->raw_pos;
+	motor->v = motor->outputGain * motor->raw_v;
+}
 
 void atlantronic_can_motor_callback(struct atlantronic_canopen* canopen, struct canopen_node* node, struct can_msg msg, int type)
 {
 	struct atlantronic_can_motor* motor = container_of(node, struct atlantronic_can_motor, node);
 	struct can_msg rx_msg;
+	uint32_t pos_int;
 
 	switch(type)
 	{
@@ -34,19 +51,18 @@ void atlantronic_can_motor_callback(struct atlantronic_canopen* canopen, struct 
 			}
 			break;
 		case CANOPEN_SYNC:
-			// TODO mise a jour du modele, on dit que c'est toutes les 5ms...
-			motor->pos += (ENCODER_RESOLUTION * motor->speedCmd * 5) / (60 * 1000);
-
 			// envoi message
+			pos_int = (uint32_t) motor->raw_pos;
 			rx_msg.id = 0x80 * CANOPEN_RX_PDO3 + node->nodeid;
-			rx_msg.data[0] = motor->pos & 0xff;
-			rx_msg.data[1] = (motor->pos >> 8) & 0xff;
-			rx_msg.data[2] = (motor->pos >> 16) & 0xff;
-			rx_msg.data[3] = (motor->pos >> 24) & 0xff;
+			rx_msg.data[0] = pos_int & 0xff;
+			rx_msg.data[1] = (pos_int >> 8) & 0xff;
+			rx_msg.data[2] = (pos_int >> 16) & 0xff;
+			rx_msg.data[3] = (pos_int >> 24) & 0xff;
 			rx_msg.data[4] = 0;
 			rx_msg.data[5] = 0;
-			rx_msg.data[6] = 5; // TODO on dit que c'est 5ms
+			rx_msg.data[6] = (motor->dtSync*1000);
 			rx_msg.size = 7;
+			motor->dtSync = 0;
 			atlantronic_canopen_write_bus(canopen, rx_msg);
 			break;
 		case CANOPEN_TX_PDO2:
