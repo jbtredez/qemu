@@ -12,9 +12,12 @@
 #include "atlantronic_can.h"
 
 #include "kernel/robot_parameters.h"
+#include "kernel/rcc.h"
+
 #include "foo/control/control.h"
 
-#define MODEL_FACTOR      10      //!< calcul du modele a 10x la frequence d'utilisation
+#define MODEL_DT           0.001f       //!< modele a 1ms
+#define MODEL_PERIOD_TICK  (int)(RCC_SYSCLK*MODEL_DT)
 
 #define PWM_NUM            4
 #define ENCODER_NUM        3
@@ -25,6 +28,18 @@
 #define EVENT_CLOCK_FACTOR         1
 #define EVENT_NEW_OBJECT           2
 #define EVENT_MOVE_OBJECT          3
+
+#define DRIVING1_WHEEL_RADIUS       33
+#define DRIVING2_WHEEL_RADIUS       33
+#define DRIVING3_WHEEL_RADIUS       33
+
+#define MOTOR_RED                   14         //!< reducteur moteur (mettre 676.0 / 49.0 ?)
+#define MOTOR_DRIVING1_RED          MOTOR_RED  //!< reduction moteur
+#define MOTOR_DRIVING2_RED          MOTOR_RED
+#define MOTOR_DRIVING3_RED          MOTOR_RED
+#define MOTOR_STEERING1_RED         (4.375f*MOTOR_RED)
+#define MOTOR_STEERING2_RED         (4.375f*MOTOR_RED)
+#define MOTOR_STEERING3_RED         (4.375f*MOTOR_RED)
 
 struct atlantronic_model_rx_event
 {
@@ -66,6 +81,8 @@ struct atlantronic_model_state
 	MemoryRegion iomem;
 	qemu_irq irq[MODEL_IRQ_OUT_NUM];
 	CharDriverState* chr;
+	QEMUTimer* timer;
+	uint64_t timer_count;
 	float encoder[ENCODER_NUM];
 	struct can_msg can_msg;
 	struct atlantronic_canopen canopen;
@@ -76,9 +93,8 @@ struct atlantronic_model_state
 	struct atlantronic_hokuyo_state hokuyo[HOKUYO_NUM];
 	struct atlantronic_dynamixel_state ax12[AX12_NUM];
 
-//	struct atlantronic_vect3 pos;
-//	float v;           //!< vitesse linéaire du robot (mm/s)
-//	float w;           //!< vitesse angulaire du robot (rd/s)
+	struct atlantronic_vect3 pos_robot;
+	struct atlantronic_vect3 npSpeed;
 };
 
 static void atlantronic_motor_init(struct atlantronic_motor* motor)
@@ -204,9 +220,10 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 		atlantronic_dynamixel_init(&s->ax12[i], &s->irq[MODEL_IRQ_OUT_USART_AX12], 2+i, DYNAMIXEL_AX12);
 	}
 
+	struct atlantronic_vect3 pos_hokuto = { 0, 0, 0}; // TODO
 	for(i = 0; i < HOKUYO_NUM; i++)
 	{
-		atlantronic_hokuyo_init(&s->hokuyo[i], &s->irq[MODEL_IRQ_OUT_USART_HOKUYO1+i]);
+		atlantronic_hokuyo_init(&s->hokuyo[i], &s->irq[MODEL_IRQ_OUT_USART_HOKUYO1+i], pos_hokuto);
 	}
 
 	for(i = 0; i < ENCODER_NUM; i++)
@@ -230,10 +247,29 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	s->w = 0;
 #endif
 
-	for(i = 0; i < CAN_MOTOR_NUM; i++)
-	{
-		atlantronic_canopen_register_node(&s->canopen, 0x20+i, &s->can_motor[i].node, atlantronic_can_motor_callback);
-	}
+	float outputGain = 2 * M_PI * DRIVING1_WHEEL_RADIUS / (float)(MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING1_RED);
+	atlantronic_can_motor_init(&s->can_motor[0], outputGain);
+	atlantronic_canopen_register_node(&s->canopen, 0x20, &s->can_motor[0].node, atlantronic_can_motor_callback);
+
+	outputGain = 2 * M_PI / (float)(MOTOR_STEERING1_RED * MOTOR_ENCODER_RESOLUTION);
+	atlantronic_can_motor_init(&s->can_motor[1], outputGain);
+	atlantronic_canopen_register_node(&s->canopen, 0x21, &s->can_motor[1].node, atlantronic_can_motor_callback);
+
+	outputGain = 2 * M_PI * DRIVING2_WHEEL_RADIUS / (float)(MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING3_RED);
+	atlantronic_can_motor_init(&s->can_motor[2], outputGain);
+	atlantronic_canopen_register_node(&s->canopen, 0x22, &s->can_motor[2].node, atlantronic_can_motor_callback);
+
+	outputGain = 2 * M_PI / (float)(MOTOR_STEERING2_RED * MOTOR_ENCODER_RESOLUTION);
+	atlantronic_can_motor_init(&s->can_motor[3], outputGain);
+	atlantronic_canopen_register_node(&s->canopen, 0x23, &s->can_motor[3].node, atlantronic_can_motor_callback);
+
+	outputGain = 2 * M_PI * DRIVING3_WHEEL_RADIUS / (float)(MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING3_RED);
+	atlantronic_can_motor_init(&s->can_motor[4], outputGain);
+	atlantronic_canopen_register_node(&s->canopen, 0x24, &s->can_motor[4].node, atlantronic_can_motor_callback);
+
+	outputGain = 2 * M_PI / (float)(MOTOR_STEERING3_RED * MOTOR_ENCODER_RESOLUTION);
+	atlantronic_can_motor_init(&s->can_motor[5], outputGain);
+	atlantronic_canopen_register_node(&s->canopen, 0x25, &s->can_motor[5].node, atlantronic_can_motor_callback);
 }
 
 #if 0
@@ -432,6 +468,101 @@ static void atlantronic_model_event(void *opaque, int event)
 
 }
 
+static struct atlantronic_vect3 odometry2turret(const struct atlantronic_vect3* cp, const struct atlantronic_vect3* A, const struct atlantronic_vect3* B, const struct atlantronic_vect3* v1, const struct atlantronic_vect3* v2, float* slippageSpeed)
+{
+	struct atlantronic_vect3 res = {0, 0, 0};
+
+	float dx = B->x - A->x;
+	float dy = B->y - A->y;
+	float dv = 0;
+
+	// on divise par le plus grand pour eviter les pb numeriques
+	if( fabsf(dx) > fabsf(dy) )
+	{
+		res.theta = (v2->y - v1->y) / dx;
+		dv = fabsf(v1->x - v2->x - dy * res.theta);
+	}
+	else if( fabsf(dy) > 0 )
+	{
+		res.theta = (v1->x - v2->x) / dy;
+		dv = fabsf(v2->y - v1->y - dx * res.theta);
+	}
+	else
+	{
+		// calcul non realisable, A et B sont au même endroit
+		// on retourne une vitesse nulle
+		goto end;
+	}
+
+	res.x = 0.5 * (v1->x + v2->x + res.theta * (A->y + B->y - 2 * cp->y));
+	res.y = 0.5 * (v1->y + v2->y + res.theta * ( 2 * cp->x - A->x - B->x));
+
+end:
+	if( slippageSpeed )
+	{
+		*slippageSpeed = dv;
+	}
+
+	return res;
+}
+
+static void atlantronic_model_update_odometry(struct atlantronic_model_state *s, float dt)
+{
+	struct atlantronic_vect3 turret[3] =
+	{
+		{   0,  155, 0},
+		{   0, -155, 0},
+		{-175,    0, 0}
+	};
+
+	int i = 0;
+	struct atlantronic_vect3 cp = {0,0,0};
+	struct atlantronic_vect3 v[3];
+
+	for(i = 0; i < 3; i++)
+	{
+		v[i].theta = s->can_motor[2*i+1].pos;
+		v[i].x = s->can_motor[2*i].v * cosf(v[i].theta);
+		v[i].y = s->can_motor[2*i].v * sinf(v[i].theta);
+	}
+
+	struct atlantronic_vect3 npSpeed1 = odometry2turret(&cp, &turret[0], &turret[1], &v[0], &v[1], NULL);
+	struct atlantronic_vect3 npSpeed2 = odometry2turret(&cp, &turret[1], &turret[2], &v[1], &v[2], NULL);
+	struct atlantronic_vect3 npSpeed3 = odometry2turret(&cp, &turret[0], &turret[2], &v[0], &v[2], NULL);
+
+	s->npSpeed.x = (npSpeed1.x + npSpeed2.x + npSpeed3.x) / 3;
+	s->npSpeed.y = (npSpeed1.y + npSpeed2.y + npSpeed3.y) / 3;
+	s->npSpeed.theta = (npSpeed1.theta + npSpeed2.theta + npSpeed3.theta) / 3;
+
+	struct atlantronic_vect3 npSpeedAbs = atlantronic_vect3_loc_to_abs_speed(s->pos_robot.theta, &s->npSpeed);
+
+	s->pos_robot.x += npSpeedAbs.x * dt;
+	s->pos_robot.y += npSpeedAbs.y * dt;
+	s->pos_robot.theta += npSpeedAbs.theta * dt;
+}
+
+static void atlantronic_model_timer_cb(void* arg)
+{
+	struct atlantronic_model_state *s = arg;
+	int i = 0;
+	float dt = MODEL_DT/system_clock_scale;
+
+	s->timer_count += MODEL_PERIOD_TICK;
+	qemu_mod_timer(s->timer, s->timer_count);
+
+	// mise a jour des moteurs
+	for(i = 0; i < CAN_MOTOR_NUM; i++)
+	{
+		atlantronic_can_motor_update(&s->can_motor[i], dt);
+	}
+
+	atlantronic_model_update_odometry(s, dt);
+	for(i = 0; i < HOKUYO_NUM; i++)
+	{
+		s->hokuyo[i].pos_robot = s->pos_robot;
+	}
+}
+
 static int atlantronic_model_init(SysBusDevice * dev)
 {
     struct atlantronic_model_state *s = OBJECT_CHECK(struct atlantronic_model_state, dev, "atlantronic-model");
@@ -452,6 +583,10 @@ static int atlantronic_model_init(SysBusDevice * dev)
 	}
 
 	atlantronic_model_reset(s);
+
+	s->timer = qemu_new_timer(vm_clock, 1, atlantronic_model_timer_cb, s);
+	s->timer_count = qemu_get_clock_ns(vm_clock) + MODEL_PERIOD_TICK;
+	qemu_mod_timer(s->timer, s->timer_count);
 
     return 0;
 }
