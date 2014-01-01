@@ -5,8 +5,6 @@
 #include "atlantronic_cpu.h"
 #include "atlantronic_dynamixel.h"
 
-#define DYNAMIXEL_PERIOD_TICK         7200000
-
 #define DYNAMIXEL_INSTRUCTION_PING             0x01
 #define DYNAMIXEL_INSTRUCTION_READ_DATA        0x02
 #define DYNAMIXEL_INSTRUCTION_WRITE_DATA       0x03
