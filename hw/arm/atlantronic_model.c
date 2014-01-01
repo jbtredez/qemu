@@ -212,6 +212,14 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 {
 	int i = 0;
 
+	s->pos_robot.x = 0;
+	s->pos_robot.y = 700;
+	s->pos_robot.theta = - M_PI / 2;
+
+	s->npSpeed.x = 0;
+	s->npSpeed.y = 0;
+	s->npSpeed.theta = 0;
+
 	atlantronic_canopen_init(&s->canopen, &s->irq[MODEL_IRQ_OUT_CAN1_MSG_ID], &s->irq[MODEL_IRQ_OUT_CAN1_MSG_SIZE],
 			&s->irq[MODEL_IRQ_OUT_CAN1_MSG_DATA_L], &s->irq[MODEL_IRQ_OUT_CAN1_MSG_DATA_H]);
 
@@ -237,15 +245,6 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 		s->pwm_dir[i] = 0;
 		atlantronic_motor_init(&s->motor[i]);
 	}
-#if 0
-	s->pos.x = 0;
-	s->pos.y = 700;
-	s->pos.alpha = - M_PI / 2;
-	s->pos.ca = cos(s->pos.alpha);
-	s->pos.sa = sin(s->pos.alpha);
-	s->v = 0;
-	s->w = 0;
-#endif
 
 	float outputGain = 2 * M_PI * DRIVING1_WHEEL_RADIUS / (float)(MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING1_RED);
 	atlantronic_can_motor_init(&s->can_motor[0], outputGain);
