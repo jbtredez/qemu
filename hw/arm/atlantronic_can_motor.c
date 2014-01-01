@@ -18,7 +18,7 @@
 #define CAN_MOTOR_CMD_SHN      0x9a    //!< notification (via status word) lors de la detection du switch (homing) // TODO dans la conf sdo sur 0x2310:4 ?
 #define CAN_MOTOR_CMD_LA       0xb4    //!< commande de position
 
-void atlantronic_can_motor_init(struct atlantronic_can_motor* s, float outputGain)
+void atlantronic_can_motor_init(struct atlantronic_can_motor* s, float outputGain, float offset)
 {
 	s->statusWord = 0;
 	s->raw_pos = 0;
@@ -27,6 +27,7 @@ void atlantronic_can_motor_init(struct atlantronic_can_motor* s, float outputGai
 	s->v = 0;
 	s->speedCmd = 0;
 	s->outputGain = outputGain;
+	s->positionOffset = offset;
 }
 
 void atlantronic_can_motor_update(struct atlantronic_can_motor* motor, float dt)
@@ -34,7 +35,7 @@ void atlantronic_can_motor_update(struct atlantronic_can_motor* motor, float dt)
 	motor->raw_v = (MOTOR_ENCODER_RESOLUTION * motor->speedCmd) / 60;
 	motor->raw_pos += motor->raw_v * dt;
 	motor->dtSync += dt;
-	motor->pos = motor->outputGain * motor->raw_pos;
+	motor->pos = motor->positionOffset + motor->outputGain * motor->raw_pos;
 	motor->v = motor->outputGain * motor->raw_v;
 }
 
