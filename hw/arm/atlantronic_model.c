@@ -41,6 +41,10 @@
 #define MOTOR_STEERING2_RED         (4.375f*MOTOR_RED)
 #define MOTOR_STEERING3_RED         (4.375f*MOTOR_RED)
 
+#define MOTOR_STEERING1_OFFSET       (5.8471f/4.375f)
+#define MOTOR_STEERING2_OFFSET          (7.0f/4.375f)
+#define MOTOR_STEERING3_OFFSET         (-4.5f/4.375f)
+
 struct atlantronic_model_rx_event
 {
 	uint32_t type;        //!< type
@@ -247,27 +251,27 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	}
 
 	float outputGain = 2 * M_PI * DRIVING1_WHEEL_RADIUS / (float)(MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING1_RED);
-	atlantronic_can_motor_init(&s->can_motor[0], outputGain);
+	atlantronic_can_motor_init(&s->can_motor[0], outputGain, 0);
 	atlantronic_canopen_register_node(&s->canopen, 0x20, &s->can_motor[0].node, atlantronic_can_motor_callback);
 
 	outputGain = 2 * M_PI / (float)(MOTOR_STEERING1_RED * MOTOR_ENCODER_RESOLUTION);
-	atlantronic_can_motor_init(&s->can_motor[1], outputGain);
+	atlantronic_can_motor_init(&s->can_motor[1], outputGain, MOTOR_STEERING1_OFFSET);
 	atlantronic_canopen_register_node(&s->canopen, 0x21, &s->can_motor[1].node, atlantronic_can_motor_callback);
 
-	outputGain = 2 * M_PI * DRIVING2_WHEEL_RADIUS / (float)(MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING3_RED);
-	atlantronic_can_motor_init(&s->can_motor[2], outputGain);
+	outputGain = 2 * M_PI * DRIVING2_WHEEL_RADIUS / (float)(MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING2_RED);
+	atlantronic_can_motor_init(&s->can_motor[2], outputGain, 0);
 	atlantronic_canopen_register_node(&s->canopen, 0x22, &s->can_motor[2].node, atlantronic_can_motor_callback);
 
 	outputGain = 2 * M_PI / (float)(MOTOR_STEERING2_RED * MOTOR_ENCODER_RESOLUTION);
-	atlantronic_can_motor_init(&s->can_motor[3], outputGain);
+	atlantronic_can_motor_init(&s->can_motor[3], outputGain, MOTOR_STEERING2_OFFSET);
 	atlantronic_canopen_register_node(&s->canopen, 0x23, &s->can_motor[3].node, atlantronic_can_motor_callback);
 
 	outputGain = 2 * M_PI * DRIVING3_WHEEL_RADIUS / (float)(MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING3_RED);
-	atlantronic_can_motor_init(&s->can_motor[4], outputGain);
+	atlantronic_can_motor_init(&s->can_motor[4], outputGain, 0);
 	atlantronic_canopen_register_node(&s->canopen, 0x24, &s->can_motor[4].node, atlantronic_can_motor_callback);
 
 	outputGain = 2 * M_PI / (float)(MOTOR_STEERING3_RED * MOTOR_ENCODER_RESOLUTION);
-	atlantronic_can_motor_init(&s->can_motor[5], outputGain);
+	atlantronic_can_motor_init(&s->can_motor[5], outputGain, MOTOR_STEERING3_OFFSET);
 	atlantronic_canopen_register_node(&s->canopen, 0x25, &s->can_motor[5].node, atlantronic_can_motor_callback);
 }
 
