@@ -10,6 +10,7 @@
 struct atlantronic_can_motor
 {
 	struct canopen_node node;
+	uint32_t statusWord; //!< status word
 	int32_t speedCmd;  //! commande de vitesse en rpm
 	float raw_pos;     //! position actuelle
 	float raw_v;       //! vitesse actuelle
