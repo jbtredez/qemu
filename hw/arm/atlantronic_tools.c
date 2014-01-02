@@ -19,10 +19,9 @@ int atlantronic_static_obj_count = 1;
 
 const struct atlantronic_vect2 corner_loc[CORNER_NUM] =
 {
-	{ PARAM_RIGHT_CORNER_X / 65536.0f, PARAM_RIGHT_CORNER_Y / 65536.0f},
-	{ PARAM_LEFT_CORNER_X / 65536.0f,  PARAM_LEFT_CORNER_Y / 65536.0f},
-	{ PARAM_NP_X / 65536.0f,  PARAM_LEFT_CORNER_Y / 65536.0f},
-	{ PARAM_NP_X / 65536.0f,  PARAM_RIGHT_CORNER_Y / 65536.0f},
+	{ 0,  155},
+	{ 0, -155},
+	{ -175,  0},
 };
 
 void atlantronic_add_object(int size, struct atlantronic_vect2* pt)
