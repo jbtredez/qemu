@@ -29,21 +29,7 @@
 #define EVENT_NEW_OBJECT           2
 #define EVENT_MOVE_OBJECT          3
 
-#define DRIVING1_WHEEL_RADIUS       33
-#define DRIVING2_WHEEL_RADIUS       33
-#define DRIVING3_WHEEL_RADIUS       33
-
-#define MOTOR_RED                   14         //!< reducteur moteur (mettre 676.0 / 49.0 ?)
-#define MOTOR_DRIVING1_RED          MOTOR_RED  //!< reduction moteur
-#define MOTOR_DRIVING2_RED          MOTOR_RED
-#define MOTOR_DRIVING3_RED          MOTOR_RED
-#define MOTOR_STEERING1_RED         (4.375f*MOTOR_RED)
-#define MOTOR_STEERING2_RED         (4.375f*MOTOR_RED)
-#define MOTOR_STEERING3_RED         (4.375f*MOTOR_RED)
-
-#define MOTOR_STEERING1_OFFSET       (5.8471f/4.375f)
-#define MOTOR_STEERING2_OFFSET          (7.0f/4.375f)
-#define MOTOR_STEERING3_OFFSET         (-4.5f/4.375f)
+static const float steering_coupling[3] = { DRIVING1_WHEEL_RADIUS, DRIVING2_WHEEL_RADIUS, DRIVING3_WHEEL_RADIUS};
 
 struct atlantronic_model_rx_event
 {
@@ -525,8 +511,9 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 	for(i = 0; i < 3; i++)
 	{
 		v[i].theta = s->can_motor[2*i+1].pos;
-		v[i].x = s->can_motor[2*i].v * cosf(v[i].theta);
-		v[i].y = s->can_motor[2*i].v * sinf(v[i].theta);
+		float speed = s->can_motor[2*i].v - steering_coupling[i] * s->can_motor[2*i+1].v;
+		v[i].x = speed * cosf(v[i].theta);
+		v[i].y = speed * sinf(v[i].theta);
 	}
 
 	struct atlantronic_vect3 npSpeed1 = odometry2turret(&cp, &turret[0], &turret[1], &v[0], &v[1], NULL);
