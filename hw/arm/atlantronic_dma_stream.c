@@ -90,6 +90,12 @@ static void atlantronic_dma_stream_write(void *opaque, hwaddr offset, uint64_t v
 					}
 				}
 			}
+			else if( (s->dma_stream.CR & DMA_SxCR_EN) && ! (val & DMA_SxCR_EN))
+			{
+				// desactivation dma
+				s->dma_stream.PAR = s->cpar_init;
+				s->dma_stream.M0AR = s->cmar_init;
+			}
 			s->dma_stream.CR = val;
 			break;
 		case offsetof(DMA_Stream_TypeDef, NDTR):
