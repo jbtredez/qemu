@@ -23,6 +23,7 @@
 #define ENCODER_NUM        3
 #define CAN_MOTOR_NUM      6
 #define AX12_NUM           6
+#define RX24_NUM           6
 #define HOKUYO_NUM         2
 
 #define EVENT_CLOCK_FACTOR         1
@@ -82,6 +83,7 @@ struct atlantronic_model_state
 
 	struct atlantronic_hokuyo_state hokuyo[HOKUYO_NUM];
 	struct atlantronic_dynamixel_state ax12[AX12_NUM];
+	struct atlantronic_dynamixel_state rx24[RX24_NUM];
 
 	struct atlantronic_vect3 pos_robot;
 	struct atlantronic_vect3 npSpeed;
@@ -216,6 +218,11 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	for(i = 0; i < AX12_NUM; i++)
 	{
 		atlantronic_dynamixel_init(&s->ax12[i], &s->irq[MODEL_IRQ_OUT_USART_AX12], 2+i, DYNAMIXEL_AX12);
+	}
+
+	for(i = 0; i < RX24_NUM; i++)
+	{
+		atlantronic_dynamixel_init(&s->rx24[i], &s->irq[MODEL_IRQ_OUT_USART_RX24], 2+i, DYNAMIXEL_RX24F);
 	}
 
 	struct atlantronic_vect3 pos_hokuto = { 0, 0, 0}; // TODO
@@ -403,6 +410,12 @@ static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 			for(i=0; i < AX12_NUM; i++)
 			{
 				atlantronic_dynamixel_in_recv_usart(&s->ax12[i], level&0xff);
+			}
+			break;
+		case MODEL_IRQ_IN_USART_RX24:
+			for(i=0; i < RX24_NUM; i++)
+			{
+				atlantronic_dynamixel_in_recv_usart(&s->rx24[i], level&0xff);
 			}
 			break;
 		case MODEL_IRQ_IN_USART_HOKUYO1:

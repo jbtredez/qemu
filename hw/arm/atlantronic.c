@@ -147,6 +147,8 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	DeviceState* model = sysbus_create_simple("atlantronic-model", 0, NULL);
 	qdev_connect_gpio_out(usart6, 3, qdev_get_gpio_in(model, MODEL_IRQ_IN_USART_AX12));
 	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_USART_AX12, qdev_get_gpio_in(usart6, 0));
+	qdev_connect_gpio_out(uart5, 3, qdev_get_gpio_in(model, MODEL_IRQ_IN_USART_RX24));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_USART_RX24, qdev_get_gpio_in(uart5, 0));
 	qdev_connect_gpio_out(uart4, 3, qdev_get_gpio_in(model, MODEL_IRQ_IN_USART_HOKUYO1));
 	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_USART_HOKUYO1, qdev_get_gpio_in(uart4, 0));
 	qdev_connect_gpio_out(usart2, 3, qdev_get_gpio_in(model, MODEL_IRQ_IN_USART_HOKUYO2));
