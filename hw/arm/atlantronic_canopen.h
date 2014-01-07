@@ -35,6 +35,7 @@ struct canopen_node
 	uint8_t nodeid;
 	uint8_t state;
 	atlantronic_canopen_callback callback;
+	int connected;       //!< indique si le noeud can est connecte
 };
 
 struct atlantronic_canopen
@@ -53,5 +54,7 @@ void atlantronic_canopen_write_bus(struct atlantronic_canopen* s, struct can_msg
 void atlantronic_canopen_tx(struct atlantronic_canopen* s, struct can_msg msg);
 
 int atlantronic_canopen_register_node(struct atlantronic_canopen* s, uint8_t nodeid, struct canopen_node* node, atlantronic_canopen_callback callback);
+
+int atlantronic_canopen_manage_node_connextion(struct atlantronic_canopen* s, uint8_t nodeid, int connected);
 
 #endif
