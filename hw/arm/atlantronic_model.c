@@ -26,9 +26,19 @@
 #define RX24_NUM           6
 #define HOKUYO_NUM         2
 
-#define EVENT_CLOCK_FACTOR         1
-#define EVENT_NEW_OBJECT           2
-#define EVENT_MOVE_OBJECT          3
+enum
+{
+	EVENT_CLOCK_FACTOR = 1,
+	EVENT_NEW_OBJECT,
+	EVENT_MOVE_OBJECT,
+	EVENT_MANAGE_CANOPEN_NODE,
+};
+
+enum
+{
+	EVENT_MANAGE_CANOPEN_NODE_CONNECT,
+	EVENT_MANAGE_CANOPEN_NODE_DISCONNECT,
+};
 
 static const float steering_coupling[3] = { DRIVING1_WHEEL_RADIUS, DRIVING2_WHEEL_RADIUS, DRIVING3_WHEEL_RADIUS};
 
@@ -436,7 +446,7 @@ static int atlantronic_model_can_receive(void *opaque)
 
 static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size)
 {
-//	struct atlantronic_model_state *model = opaque;
+	struct atlantronic_model_state* model = opaque;
 	struct atlantronic_model_rx_event* event = (struct atlantronic_model_rx_event*) buf;
 
 	if(size != sizeof(struct atlantronic_model_rx_event))
@@ -461,6 +471,9 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 			break;
 		case EVENT_MOVE_OBJECT:
 			atlantronic_move_object(event->data[0], *((struct atlantronic_vect2*)&event->data[1]), *((struct atlantronic_vect3*)&event->data[1+sizeof(struct atlantronic_vect2)]));
+			break;
+		case EVENT_MANAGE_CANOPEN_NODE:
+			atlantronic_canopen_manage_node_connextion(&model->canopen, event->data32[0], event->data32[1] == EVENT_MANAGE_CANOPEN_NODE_CONNECT ? 1 : 0);
 			break;
 	}
 }
