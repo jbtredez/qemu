@@ -128,7 +128,17 @@ static void atlantronic_can_write(void *opaque, hwaddr offset, uint64_t val, uns
 
 	switch(offset)
 	{
-		W_ACCESS(CAN_TypeDef, s->can, MCR, val);
+		case offsetof(CAN_TypeDef, MCR):
+			if( val & CAN_MCR_INRQ )
+			{
+				s->can.MSR |= CAN_MSR_INAK;
+			}
+			else
+			{
+				s->can.MSR &= ~CAN_MSR_INAK;
+			}
+			s->can.MCR = val;
+			break;
 		W_ACCESS(CAN_TypeDef, s->can, MSR, val);
 		case offsetof(CAN_TypeDef, TSR):
 			if(val & CAN_TSR_RQCP0)
