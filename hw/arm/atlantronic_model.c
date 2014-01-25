@@ -14,8 +14,6 @@
 #include "kernel/robot_parameters.h"
 #include "kernel/rcc.h"
 
-#include "foo/control/control.h"
-
 #define MODEL_DT           0.001f       //!< modele a 1ms
 #define MODEL_PERIOD_TICK  (int)(RCC_SYSCLK*MODEL_DT)
 
