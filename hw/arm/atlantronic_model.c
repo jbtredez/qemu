@@ -463,6 +463,9 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 			{
 				system_clock_scale = INT_MAX/2;
 			}
+			char buffer[256];
+			sprintf(buffer, "%d", event->data32[1]);
+			configure_icount(buffer);
 			break;
 		case EVENT_NEW_OBJECT:
 			atlantronic_add_object(MIN(event->data[0], (sizeof(event->data)-1)/sizeof(struct atlantronic_vect2)), (struct atlantronic_vect2*)&event->data[1]);
