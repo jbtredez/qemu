@@ -565,7 +565,7 @@ static void atlantronic_model_timer_cb(void* arg)
 	float dt = MODEL_DT/system_clock_scale;
 
 	s->timer_count += MODEL_PERIOD_TICK;
-	qemu_mod_timer(s->timer, s->timer_count);
+	timer_mod(s->timer, s->timer_count);
 
 	// mise a jour des moteurs
 	for(i = 0; i < CAN_MOTOR_NUM; i++)
@@ -601,9 +601,9 @@ static int atlantronic_model_init(SysBusDevice * dev)
 
 	atlantronic_model_reset(s);
 
-	s->timer = qemu_new_timer(vm_clock, 1, atlantronic_model_timer_cb, s);
-	s->timer_count = qemu_get_clock_ns(vm_clock) + MODEL_PERIOD_TICK;
-	qemu_mod_timer(s->timer, s->timer_count);
+	s->timer = timer_new(QEMU_CLOCK_VIRTUAL, 1, atlantronic_model_timer_cb, s);
+	s->timer_count = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + MODEL_PERIOD_TICK;
+	timer_mod(s->timer, s->timer_count);
 
     return 0;
 }
