@@ -59,7 +59,7 @@ static const struct hwdef hwdefs[] = {
             .cfg_data = APB_MEM_BASE,                    // PCI bus memory space
             .cfg_base = APB_SPECIAL_BASE,
             .cfg_len = 0x2000000,
-            .host_mem_base = APB_MEM_BASE,
+            .host_pci_base = APB_MEM_BASE,
             .pci_mem_base = 0x100000, /* avoid VGA at 0xa0000 */
             .mem_len = 0x10000000,
             .io_base = APB_SPECIAL_BASE + 0x2000000ULL, // PCI Bus I/O space
@@ -505,30 +505,12 @@ void arch_nvram_get(char *data)
     }
 
     push_str(stdin_path);
-    fword("open-dev");
-    fword("encode-int");
-    push_str("stdin");
-    fword("property");
-
-    push_str(stdout_path);
-    fword("open-dev");
-    fword("encode-int");
-    push_str("stdout");
-    fword("property");
-
-    push_str(stdin_path);
     push_str("input-device");
     fword("$setenv");
 
     push_str(stdout_path);
     push_str("output-device");
     fword("$setenv");
-
-    push_str(stdin_path);
-    fword("input");
-
-    push_str(stdout_path);
-    fword("output");
 }
 
 void arch_nvram_put(char *data)

@@ -46,8 +46,6 @@ static inline int is_newworld(void)
 int ob_sbus_init(uint64_t base, int machine_id);
 
 /* arch/sparc32/console.c */
-void tcx_init(uint64_t base);
-void tcx_hw_set_color(void);
 void kbd_init(uint64_t base);
 #endif
 #ifdef CONFIG_DRIVER_IDE
@@ -124,6 +122,9 @@ int keyboard_dataready(void);
 unsigned char keyboard_readdata(void);
 #endif
 #endif
+int macio_get_nvram_size(void);
+void macio_nvram_put(char *buf);
+void macio_nvram_get(char *buf);
 
 /* drivers/timer.c */
 void setup_timers(void);

@@ -22,8 +22,8 @@ hex
 
 #include "base.fs"
 
-\ Adjust load-base to point to paflof-start / 2:
-paflof-start 1 rshift fff not and to load-base
+\ Set default load-base to 0x4000
+4000 to default-load-base
 
 \ Little-endian accesses.  Also known as `wrong-endian'.
 #include <little-endian.fs>
@@ -109,9 +109,13 @@ d# 512000000 VALUE tb-frequency   \ default value - needed for "ms" to work
 
 #include <scsi-loader.fs>
 
-360 cp
+340 cp
 
 #include "fdt.fs"
+
+360 cp
+
+#include <root.fs>
 
 370 cp
 

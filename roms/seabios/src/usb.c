@@ -9,13 +9,13 @@
 #include "config.h" // CONFIG_*
 #include "pci_regs.h" // PCI_CLASS_REVISION
 #include "pci_ids.h" // PCI_CLASS_SERIAL_USB_UHCI
-#include "usb-uhci.h" // uhci_init
-#include "usb-ohci.h" // ohci_init
-#include "usb-ehci.h" // ehci_init
+#include "usb-uhci.h" // uhci_setup
+#include "usb-ohci.h" // ohci_setup
+#include "usb-ehci.h" // ehci_setup
 #include "usb-hid.h" // usb_keyboard_setup
-#include "usb-hub.h" // usb_hub_init
-#include "usb-msc.h" // usb_msc_init
-#include "usb-uas.h" // usb_uas_init
+#include "usb-hub.h" // usb_hub_setup
+#include "usb-msc.h" // usb_msc_setup
+#include "usb-uas.h" // usb_uas_setup
 #include "usb.h" // struct usb_s
 #include "biosvar.h" // GET_GLOBAL
 
@@ -323,14 +323,14 @@ configure_usb_device(struct usbdevice_s *usbdev)
     usbdev->iface = iface;
     usbdev->imax = (void*)config + config->wTotalLength - (void*)iface;
     if (iface->bInterfaceClass == USB_CLASS_HUB)
-        ret = usb_hub_init(usbdev);
+        ret = usb_hub_setup(usbdev);
     else if (iface->bInterfaceClass == USB_CLASS_MASS_STORAGE) {
         if (iface->bInterfaceProtocol == US_PR_BULK)
-            ret = usb_msc_init(usbdev);
+            ret = usb_msc_setup(usbdev);
         if (iface->bInterfaceProtocol == US_PR_UAS)
-            ret = usb_uas_init(usbdev);
+            ret = usb_uas_setup(usbdev);
     } else
-        ret = usb_hid_init(usbdev);
+        ret = usb_hid_setup(usbdev);
     if (ret)
         goto fail;
 
@@ -342,7 +342,7 @@ fail:
 }
 
 static void
-usb_init_hub_port(void *data)
+usb_hub_port_setup(void *data)
 {
     struct usbdevice_s *usbdev = data;
     struct usbhub_s *hub = usbdev->hub;
@@ -403,7 +403,7 @@ usb_enumerate(struct usbhub_s *hub)
         memset(usbdev, 0, sizeof(*usbdev));
         usbdev->hub = hub;
         usbdev->port = i;
-        run_thread(usb_init_hub_port, usbdev);
+        run_thread(usb_hub_port_setup, usbdev);
     }
 
     // Wait for threads to complete.
@@ -422,20 +422,19 @@ usb_setup(void)
 
     // Look for USB controllers
     int count = 0;
-    struct pci_device *ehcipci = PCIDevices;
-    struct pci_device *pci;
+    struct pci_device *pci, *ehcipci = NULL;
     foreachpci(pci) {
         if (pci->class != PCI_CLASS_SERIAL_USB)
             continue;
 
-        if (pci->bdf >= ehcipci->bdf) {
+        if (!ehcipci || pci->bdf >= ehcipci->bdf) {
             // Check to see if this device has an ehci controller
             int found = 0;
             ehcipci = pci;
             for (;;) {
                 if (pci_classprog(ehcipci) == PCI_CLASS_SERIAL_USB_EHCI) {
                     // Found an ehci controller.
-                    int ret = ehci_init(ehcipci, count++, pci);
+                    int ret = ehci_setup(ehcipci, count++, pci);
                     if (ret)
                         // Error
                         break;
@@ -445,7 +444,8 @@ usb_setup(void)
                 }
                 if (ehcipci->class == PCI_CLASS_SERIAL_USB)
                     found++;
-                ehcipci = ehcipci->next;
+                ehcipci = container_of_or_null(
+                    ehcipci->node.next, struct pci_device, node);
                 if (!ehcipci || (pci_bdf_to_busdev(ehcipci->bdf)
                                  != pci_bdf_to_busdev(pci->bdf)))
                     // No ehci controller found.
@@ -454,8 +454,8 @@ usb_setup(void)
         }
 
         if (pci_classprog(pci) == PCI_CLASS_SERIAL_USB_UHCI)
-            uhci_init(pci, count++);
+            uhci_setup(pci, count++);
         else if (pci_classprog(pci) == PCI_CLASS_SERIAL_USB_OHCI)
-            ohci_init(pci, count++);
+            ohci_setup(pci, count++);
     }
 }

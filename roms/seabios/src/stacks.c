@@ -7,6 +7,7 @@
 #include "biosvar.h" // GET_GLOBAL
 #include "util.h" // dprintf
 #include "bregs.h" // CR0_PE
+#include "list.h" // hlist_node
 
 
 /****************************************************************
@@ -239,14 +240,21 @@ __call16_int(struct bregs *callregs, u16 offset)
 // Thread info - stored at bottom of each thread stack - don't change
 // without also updating the inline assembler below.
 struct thread_info {
-    struct thread_info *next;
     void *stackpos;
-    struct thread_info **pprev;
+    struct hlist_node node;
 };
-struct thread_info VAR32FLATVISIBLE MainThread = {
-    &MainThread, NULL, &MainThread.next
+struct thread_info MainThread VARFSEG = {
+    NULL, { &MainThread.node, &MainThread.node.next }
 };
 #define THREADSTACKSIZE 4096
+
+// Check if any threads are running.
+static int
+have_threads(void)
+{
+    return (CONFIG_THREADS
+            && GET_FLATPTR(MainThread.node.next) != &MainThread.node);
+}
 
 // Return the 'struct thread_info' for the currently running thread.
 struct thread_info *
@@ -262,15 +270,16 @@ getCurThread(void)
 static void
 switch_next(struct thread_info *cur)
 {
-    struct thread_info *next = cur->next;
+    struct thread_info *next = container_of(
+        cur->node.next, struct thread_info, node);
     if (cur == next)
         // Nothing to do.
         return;
     asm volatile(
         "  pushl $1f\n"                 // store return pc
         "  pushl %%ebp\n"               // backup %ebp
-        "  movl %%esp, 4(%%eax)\n"      // cur->stackpos = %esp
-        "  movl 4(%%ecx), %%esp\n"      // %esp = next->stackpos
+        "  movl %%esp, (%%eax)\n"       // cur->stackpos = %esp
+        "  movl (%%ecx), %%esp\n"       // %esp = next->stackpos
         "  popl %%ebp\n"                // restore %ebp
         "  retl\n"                      // restore pc
         "1:\n"
@@ -278,6 +287,64 @@ switch_next(struct thread_info *cur)
         :
         : "ebx", "edx", "esi", "edi", "cc", "memory");
 }
+
+// Last thing called from a thread (called on "next" stack).
+static void
+__end_thread(struct thread_info *old)
+{
+    hlist_del(&old->node);
+    free(old);
+    dprintf(DEBUG_thread, "\\%08x/ End thread\n", (u32)old);
+    if (!have_threads())
+        dprintf(1, "All threads complete.\n");
+}
+
+// Create a new thread and start executing 'func' in it.
+void
+run_thread(void (*func)(void*), void *data)
+{
+    ASSERT32FLAT();
+    if (! CONFIG_THREADS)
+        goto fail;
+    struct thread_info *thread;
+    thread = memalign_tmphigh(THREADSTACKSIZE, THREADSTACKSIZE);
+    if (!thread)
+        goto fail;
+
+    thread->stackpos = (void*)thread + THREADSTACKSIZE;
+    struct thread_info *cur = getCurThread();
+    hlist_add_after(&thread->node, &cur->node);
+
+    dprintf(DEBUG_thread, "/%08x\\ Start thread\n", (u32)thread);
+    asm volatile(
+        // Start thread
+        "  pushl $1f\n"                 // store return pc
+        "  pushl %%ebp\n"               // backup %ebp
+        "  movl %%esp, (%%edx)\n"       // cur->stackpos = %esp
+        "  movl (%%ebx), %%esp\n"       // %esp = thread->stackpos
+        "  calll *%%ecx\n"              // Call func
+
+        // End thread
+        "  movl 4(%%ebx), %%ecx\n"      // %ecx = thread->node.next
+        "  movl -4(%%ecx), %%esp\n"     // %esp = next->stackpos
+        "  movl %%ebx, %%eax\n"
+        "  calll %4\n"                  // call __end_thread(thread)
+        "  popl %%ebp\n"                // restore %ebp
+        "  retl\n"                      // restore pc
+        "1:\n"
+        : "+a"(data), "+c"(func), "+b"(thread), "+d"(cur)
+        : "m"(*(u8*)__end_thread)
+        : "esi", "edi", "cc", "memory");
+    return;
+
+fail:
+    func(data);
+}
+
+
+/****************************************************************
+ * Thread helpers
+ ****************************************************************/
 
 // Low-level irq enable.
 void VISIBLE16
@@ -322,7 +389,7 @@ yield_toirq(void)
         stack_hop_back(0, 0, wait_irq);
         return;
     }
-    if (CONFIG_THREADS && MainThread.next != &MainThread) {
+    if (have_threads()) {
         // Threads still active - do a yield instead.
         yield();
         return;
@@ -331,71 +398,12 @@ yield_toirq(void)
     call16big(0, _cfunc16_wait_irq);
 }
 
-// Last thing called from a thread (called on "next" stack).
-static void
-__end_thread(struct thread_info *old)
-{
-    old->next->pprev = old->pprev;
-    *old->pprev = old->next;
-    free(old);
-    dprintf(DEBUG_thread, "\\%08x/ End thread\n", (u32)old);
-    if (MainThread.next == &MainThread)
-        dprintf(1, "All threads complete.\n");
-}
-
-// Create a new thread and start executing 'func' in it.
-void
-run_thread(void (*func)(void*), void *data)
-{
-    ASSERT32FLAT();
-    if (! CONFIG_THREADS)
-        goto fail;
-    struct thread_info *thread;
-    thread = memalign_tmphigh(THREADSTACKSIZE, THREADSTACKSIZE);
-    if (!thread)
-        goto fail;
-
-    thread->stackpos = (void*)thread + THREADSTACKSIZE;
-    struct thread_info *cur = getCurThread();
-    thread->next = cur;
-    thread->pprev = cur->pprev;
-    cur->pprev = &thread->next;
-    *thread->pprev = thread;
-
-    dprintf(DEBUG_thread, "/%08x\\ Start thread\n", (u32)thread);
-    asm volatile(
-        // Start thread
-        "  pushl $1f\n"                 // store return pc
-        "  pushl %%ebp\n"               // backup %ebp
-        "  movl %%esp, 4(%%edx)\n"      // cur->stackpos = %esp
-        "  movl 4(%%ebx), %%esp\n"      // %esp = thread->stackpos
-        "  calll *%%ecx\n"              // Call func
-
-        // End thread
-        "  movl (%%ebx), %%ecx\n"       // %ecx = thread->next
-        "  movl 4(%%ecx), %%esp\n"      // %esp = next->stackpos
-        "  movl %%ebx, %%eax\n"
-        "  calll %4\n"                  // call __end_thread(thread)
-        "  popl %%ebp\n"                // restore %ebp
-        "  retl\n"                      // restore pc
-        "1:\n"
-        : "+a"(data), "+c"(func), "+b"(thread), "+d"(cur)
-        : "m"(*(u8*)__end_thread)
-        : "esi", "edi", "cc", "memory");
-    return;
-
-fail:
-    func(data);
-}
-
 // Wait for all threads (other than the main thread) to complete.
 void
 wait_threads(void)
 {
     ASSERT32FLAT();
-    if (! CONFIG_THREADS)
-        return;
-    while (MainThread.next != &MainThread)
+    while (have_threads())
         yield();
 }
 
@@ -424,14 +432,14 @@ mutex_unlock(struct mutex_s *mutex)
  * Thread preemption
  ****************************************************************/
 
-int VAR16VISIBLE CanPreempt;
+int CanPreempt VARFSEG;
 static u32 PreemptCount;
 
 // Turn on RTC irqs and arrange for them to check the 32bit threads.
 void
 start_preempt(void)
 {
-    if (! CONFIG_THREADS || ! CONFIG_THREAD_OPTIONROMS)
+    if (! CONFIG_THREAD_OPTIONROMS)
         return;
     CanPreempt = 1;
     PreemptCount = 0;
@@ -442,7 +450,7 @@ start_preempt(void)
 void
 finish_preempt(void)
 {
-    if (! CONFIG_THREADS || ! CONFIG_THREAD_OPTIONROMS) {
+    if (! CONFIG_THREAD_OPTIONROMS) {
         yield();
         return;
     }
@@ -456,8 +464,7 @@ finish_preempt(void)
 int
 wait_preempt(void)
 {
-    if (MODESEGMENT || !CONFIG_THREADS || !CONFIG_THREAD_OPTIONROMS
-        || !CanPreempt)
+    if (MODESEGMENT || !CONFIG_THREAD_OPTIONROMS || !CanPreempt)
         return 0;
     while (CanPreempt)
         yield();
@@ -476,11 +483,7 @@ yield_preempt(void)
 void
 check_preempt(void)
 {
-    if (! CONFIG_THREADS || ! CONFIG_THREAD_OPTIONROMS
-        || !GET_GLOBAL(CanPreempt)
-        || GET_FLATPTR(MainThread.next) == &MainThread)
-        return;
-
     extern void _cfunc32flat_yield_preempt(void);
-    call32(_cfunc32flat_yield_preempt, 0, 0);
+    if (CONFIG_THREAD_OPTIONROMS && GET_GLOBAL(CanPreempt) && have_threads())
+        call32(_cfunc32flat_yield_preempt, 0, 0);
 }

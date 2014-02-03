@@ -12,6 +12,9 @@
 #include "boot.h" // boot_add_cbfs
 #include "disk.h" // MAXDESCSIZE
 #include "config.h" // CONFIG_*
+#include "acpi.h" // find_acpi_features
+#include "pci.h" // pci_probe_devices
+#include "paravirt.h" // PlatformRunningOn
 
 
 /****************************************************************
@@ -123,8 +126,11 @@ const char *CBvendor = "", *CBpart = "";
 
 // Populate max ram and e820 map info by scanning for a coreboot table.
 void
-coreboot_setup(void)
+coreboot_preinit(void)
 {
+    if (!CONFIG_COREBOOT)
+        return;
+
     dprintf(3, "Attempting to find coreboot table\n");
 
     // Find coreboot table.
@@ -143,27 +149,14 @@ coreboot_setup(void)
     if (!cbm)
         goto fail;
 
-    u64 maxram = 0, maxram_over4G = 0;
     int i, count = MEM_RANGE_COUNT(cbm);
     for (i=0; i<count; i++) {
         struct cb_memory_range *m = &cbm->map[i];
         u32 type = m->type;
-        if (type == CB_MEM_TABLE) {
+        if (type == CB_MEM_TABLE)
             type = E820_RESERVED;
-        } else if (type == E820_ACPI || type == E820_RAM) {
-            u64 end = m->start + m->size;
-            if (end > 0x100000000ull) {
-                end -= 0x100000000ull;
-                if (end > maxram_over4G)
-                    maxram_over4G = end;
-            } else if (end > maxram)
-                maxram = end;
-        }
         add_e820(m->start, m->size, type);
     }
-
-    RamSize = maxram;
-    RamSizeOver4G = maxram_over4G;
 
     // Ughh - coreboot likes to set a map at 0x0000-0x1000, but this
     // confuses grub.  So, override it.
@@ -173,6 +166,10 @@ coreboot_setup(void)
     if (cbmb) {
         CBvendor = &cbmb->strings[cbmb->vendor_idx];
         CBpart = &cbmb->strings[cbmb->part_idx];
+        if (strcmp(CBvendor, "Emulation") == 0 &&
+            memcmp(CBpart, "QEMU", 4) == 0) {
+            PlatformRunningOn |= PF_QEMU;
+        }
         dprintf(1, "Found mainboard %s %s\n", CBvendor, CBpart);
     }
 
@@ -181,8 +178,6 @@ coreboot_setup(void)
 fail:
     // No table found..  Use 16Megs as a dummy value.
     dprintf(1, "Unable to find coreboot table!\n");
-    RamSize = 16*1024*1024;
-    RamSizeOver4G = 0;
     add_e820(0, 16*1024*1024, E820_RAM);
     return;
 }
@@ -204,10 +199,14 @@ scan_tables(u32 start, u32 size)
 }
 
 void
-coreboot_copy_biostable(void)
+coreboot_platform_setup(void)
 {
+    if (!CONFIG_COREBOOT)
+        return;
+    pci_probe_devices();
+
     struct cb_memory *cbm = CBMemTable;
-    if (! CONFIG_COREBOOT || !cbm)
+    if (!cbm)
         return;
 
     dprintf(3, "Relocating coreboot bios tables\n");
@@ -219,6 +218,8 @@ coreboot_copy_biostable(void)
         if (m->type == CB_MEM_TABLE)
             scan_tables(m->start, m->size);
     }
+
+    find_acpi_features();
 }
 
 
@@ -290,16 +291,25 @@ struct cbfs_file {
     char filename[0];
 } PACKED;
 
+struct cbfs_romfile_s {
+    struct romfile_s file;
+    struct cbfs_file *fhdr;
+    void *data;
+    u32 rawsize, flags;
+};
+
 // Copy a file to memory (uncompressing if necessary)
 static int
 cbfs_copyfile(struct romfile_s *file, void *dst, u32 maxlen)
 {
-    if (!CONFIG_COREBOOT || !CONFIG_COREBOOT_FLASH)
+    if (!CONFIG_COREBOOT_FLASH)
         return -1;
 
-    u32 size = file->rawsize;
-    void *src = file->data;
-    if (file->flags) {
+    struct cbfs_romfile_s *cfile;
+    cfile = container_of(file, struct cbfs_romfile_s, file);
+    u32 size = cfile->rawsize;
+    void *src = cfile->data;
+    if (cfile->flags) {
         // Compressed - copy to temp ram and uncompress it.
         void *temp = malloc_tmphigh(size);
         if (!temp) {
@@ -324,9 +334,9 @@ cbfs_copyfile(struct romfile_s *file, void *dst, u32 maxlen)
 }
 
 void
-coreboot_cbfs_setup(void)
+coreboot_cbfs_init(void)
 {
-    if (!CONFIG_COREBOOT || !CONFIG_COREBOOT_FLASH)
+    if (!CONFIG_COREBOOT_FLASH)
         return;
 
     struct cbfs_header *hdr = *(void **)CBFS_HEADPTR_ADDR;
@@ -337,36 +347,36 @@ coreboot_cbfs_setup(void)
     }
     dprintf(1, "Found CBFS header at %p\n", hdr);
 
-    struct cbfs_file *cfile = (void *)(0 - be32_to_cpu(hdr->romsize)
-                                       + be32_to_cpu(hdr->offset));
+    struct cbfs_file *fhdr = (void *)(0 - be32_to_cpu(hdr->romsize)
+                                      + be32_to_cpu(hdr->offset));
     for (;;) {
-        if (cfile < (struct cbfs_file *)(0xFFFFFFFF - be32_to_cpu(hdr->romsize)))
+        if (fhdr < (struct cbfs_file *)(0xFFFFFFFF - be32_to_cpu(hdr->romsize)))
             break;
-        u64 magic = cfile->magic;
+        u64 magic = fhdr->magic;
         if (magic != CBFS_FILE_MAGIC)
             break;
-        struct romfile_s *file = malloc_tmp(sizeof(*file));
-        if (!file) {
+        struct cbfs_romfile_s *cfile = malloc_tmp(sizeof(*cfile));
+        if (!cfile) {
             warn_noalloc();
             break;
         }
-        memset(file, 0, sizeof(*file));
-        strtcpy(file->name, cfile->filename, sizeof(file->name));
-        dprintf(3, "Found CBFS file: %s\n", file->name);
-        file->size = file->rawsize = be32_to_cpu(cfile->len);
-        file->id = (u32)cfile;
-        file->copy = cbfs_copyfile;
-        file->data = (void*)cfile + be32_to_cpu(cfile->offset);
-        int len = strlen(file->name);
-        if (len > 5 && strcmp(&file->name[len-5], ".lzma") == 0) {
+        memset(cfile, 0, sizeof(*cfile));
+        strtcpy(cfile->file.name, fhdr->filename, sizeof(cfile->file.name));
+        cfile->file.size = cfile->rawsize = be32_to_cpu(fhdr->len);
+        cfile->fhdr = fhdr;
+        cfile->file.copy = cbfs_copyfile;
+        cfile->data = (void*)fhdr + be32_to_cpu(fhdr->offset);
+        int len = strlen(cfile->file.name);
+        if (len > 5 && strcmp(&cfile->file.name[len-5], ".lzma") == 0) {
             // Using compression.
-            file->flags = 1;
-            file->name[len-5] = '\0';
-            file->size = *(u32*)(file->data + LZMA_PROPERTIES_SIZE);
+            cfile->flags = 1;
+            cfile->file.name[len-5] = '\0';
+            cfile->file.size = *(u32*)(cfile->data + LZMA_PROPERTIES_SIZE);
         }
-        romfile_add(file);
+        romfile_add(&cfile->file);
 
-        cfile = (void*)ALIGN((u32)file->data + file->size, be32_to_cpu(hdr->align));
+        fhdr = (void*)ALIGN((u32)cfile->data + cfile->rawsize
+                            , be32_to_cpu(hdr->align));
     }
 }
 
@@ -390,12 +400,12 @@ struct cbfs_payload {
 };
 
 void
-cbfs_run_payload(struct cbfs_file *file)
+cbfs_run_payload(struct cbfs_file *fhdr)
 {
-    if (!CONFIG_COREBOOT || !CONFIG_COREBOOT_FLASH || !file)
+    if (!CONFIG_COREBOOT_FLASH || !fhdr)
         return;
-    dprintf(1, "Run %s\n", file->filename);
-    struct cbfs_payload *pay = (void*)file + be32_to_cpu(file->offset);
+    dprintf(1, "Run %s\n", fhdr->filename);
+    struct cbfs_payload *pay = (void*)fhdr + be32_to_cpu(fhdr->offset);
     struct cbfs_payload_segment *seg = pay->segments;
     for (;;) {
         void *src = (void*)pay + be32_to_cpu(seg->offset);
@@ -443,16 +453,17 @@ cbfs_run_payload(struct cbfs_file *file)
 void
 cbfs_payload_setup(void)
 {
-    if (!CONFIG_COREBOOT || !CONFIG_COREBOOT_FLASH)
+    if (!CONFIG_COREBOOT_FLASH)
         return;
     struct romfile_s *file = NULL;
     for (;;) {
         file = romfile_findprefix("img/", file);
         if (!file)
             break;
+        struct cbfs_romfile_s *cfile;
+        cfile = container_of(file, struct cbfs_romfile_s, file);
         const char *filename = file->name;
         char *desc = znprintf(MAXDESCSIZE, "Payload [%s]", &filename[4]);
-        boot_add_cbfs((void*)file->id, desc
-                      , bootprio_find_named_rom(filename, 0));
+        boot_add_cbfs(cfile->fhdr, desc, bootprio_find_named_rom(filename, 0));
     }
 }

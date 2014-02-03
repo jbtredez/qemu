@@ -11,9 +11,11 @@
 #include "pci_regs.h" // PCI_COMMAND
 #include "ioport.h" // PORT_ATA1_CMD_BASE
 #include "config.h" // CONFIG_*
-#include "xen.h" // usingXen
 #include "memmap.h" // add_e820
-#include "dev-q35.h"
+#include "paravirt.h" // RamSize
+#include "dev-q35.h" // Q35_HOST_BRIDGE_PCIEXBAR_ADDR
+#include "list.h" // struct hlist_node
+#include "acpi.h" // acpi_pm1a_cnt
 
 /* PM Timer ticks per second (HZ) */
 #define PM_TIMER_FREQUENCY  3579545
@@ -47,13 +49,13 @@ struct pci_region_entry {
     u64 align;
     int is64;
     enum pci_region_type type;
-    struct pci_region_entry *next;
+    struct hlist_node node;
 };
 
 struct pci_region {
     /* pci region assignments */
     u64 base;
-    struct pci_region_entry *list;
+    struct hlist_head list;
 };
 
 struct pci_bus {
@@ -140,7 +142,7 @@ static int mch_pci_slot_get_irq(struct pci_device *pci, int pin)
 }
 
 /* PIIX3/PIIX4 PCI to ISA bridge */
-static void piix_isa_bridge_init(struct pci_device *pci, void *arg)
+static void piix_isa_bridge_setup(struct pci_device *pci, void *arg)
 {
     int i, irq;
     u8 elcr[2];
@@ -161,7 +163,7 @@ static void piix_isa_bridge_init(struct pci_device *pci, void *arg)
 
 /* ICH9 LPC PCI to ISA bridge */
 /* PCI_VENDOR_ID_INTEL && PCI_DEVICE_ID_INTEL_ICH9_LPC */
-void mch_isa_bridge_init(struct pci_device *dev, void *arg)
+void mch_isa_bridge_setup(struct pci_device *dev, void *arg)
 {
     u16 bdf = dev->bdf;
     int i, irq;
@@ -193,10 +195,11 @@ void mch_isa_bridge_init(struct pci_device *dev, void *arg)
     /* acpi enable, SCI: IRQ9 000b = irq9*/
     pci_config_writeb(bdf, ICH9_LPC_ACPI_CTRL, ICH9_LPC_ACPI_CTRL_ACPI_EN);
 
-    pmtimer_init(PORT_ACPI_PM_BASE + 0x08, PM_TIMER_FREQUENCY / 1000);
+    acpi_pm1a_cnt = PORT_ACPI_PM_BASE + 0x04;
+    pmtimer_setup(PORT_ACPI_PM_BASE + 0x08, PM_TIMER_FREQUENCY / 1000);
 }
 
-static void storage_ide_init(struct pci_device *pci, void *arg)
+static void storage_ide_setup(struct pci_device *pci, void *arg)
 {
     /* IDE: we map it as in ISA mode */
     pci_set_io_region_addr(pci, 0, PORT_ATA1_CMD_BASE, 0);
@@ -206,27 +209,27 @@ static void storage_ide_init(struct pci_device *pci, void *arg)
 }
 
 /* PIIX3/PIIX4 IDE */
-static void piix_ide_init(struct pci_device *pci, void *arg)
+static void piix_ide_setup(struct pci_device *pci, void *arg)
 {
     u16 bdf = pci->bdf;
     pci_config_writew(bdf, 0x40, 0x8000); // enable IDE0
     pci_config_writew(bdf, 0x42, 0x8000); // enable IDE1
 }
 
-static void pic_ibm_init(struct pci_device *pci, void *arg)
+static void pic_ibm_setup(struct pci_device *pci, void *arg)
 {
     /* PIC, IBM, MPIC & MPIC2 */
     pci_set_io_region_addr(pci, 0, 0x80800000 + 0x00040000, 0);
 }
 
-static void apple_macio_init(struct pci_device *pci, void *arg)
+static void apple_macio_setup(struct pci_device *pci, void *arg)
 {
     /* macio bridge */
     pci_set_io_region_addr(pci, 0, 0x80800000, 0);
 }
 
 /* PIIX4 Power Management device (for ACPI) */
-static void piix4_pm_init(struct pci_device *pci, void *arg)
+static void piix4_pm_setup(struct pci_device *pci, void *arg)
 {
     u16 bdf = pci->bdf;
     // acpi sci is hardwired to 9
@@ -237,12 +240,13 @@ static void piix4_pm_init(struct pci_device *pci, void *arg)
     pci_config_writel(bdf, 0x90, PORT_SMB_BASE | 1);
     pci_config_writeb(bdf, 0xd2, 0x09); /* enable SMBus io space */
 
-    pmtimer_init(PORT_ACPI_PM_BASE + 0x08, PM_TIMER_FREQUENCY / 1000);
+    acpi_pm1a_cnt = PORT_ACPI_PM_BASE + 0x04;
+    pmtimer_setup(PORT_ACPI_PM_BASE + 0x08, PM_TIMER_FREQUENCY / 1000);
 }
 
 /* ICH9 SMBUS */
 /* PCI_VENDOR_ID_INTEL && PCI_DEVICE_ID_INTEL_ICH9_SMBUS */
-void ich9_smbus_init(struct pci_device *dev, void *arg)
+void ich9_smbus_setup(struct pci_device *dev, void *arg)
 {
     u16 bdf = dev->bdf;
     /* map smbus into io space */
@@ -256,35 +260,35 @@ void ich9_smbus_init(struct pci_device *dev, void *arg)
 static const struct pci_device_id pci_device_tbl[] = {
     /* PIIX3/PIIX4 PCI to ISA bridge */
     PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82371SB_0,
-               piix_isa_bridge_init),
+               piix_isa_bridge_setup),
     PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82371AB_0,
-               piix_isa_bridge_init),
+               piix_isa_bridge_setup),
     PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_ICH9_LPC,
-               mch_isa_bridge_init),
+               mch_isa_bridge_setup),
 
     /* STORAGE IDE */
     PCI_DEVICE_CLASS(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82371SB_1,
-                     PCI_CLASS_STORAGE_IDE, piix_ide_init),
+                     PCI_CLASS_STORAGE_IDE, piix_ide_setup),
     PCI_DEVICE_CLASS(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82371AB,
-                     PCI_CLASS_STORAGE_IDE, piix_ide_init),
+                     PCI_CLASS_STORAGE_IDE, piix_ide_setup),
     PCI_DEVICE_CLASS(PCI_ANY_ID, PCI_ANY_ID, PCI_CLASS_STORAGE_IDE,
-                     storage_ide_init),
+                     storage_ide_setup),
 
     /* PIC, IBM, MIPC & MPIC2 */
     PCI_DEVICE_CLASS(PCI_VENDOR_ID_IBM, 0x0046, PCI_CLASS_SYSTEM_PIC,
-                     pic_ibm_init),
+                     pic_ibm_setup),
     PCI_DEVICE_CLASS(PCI_VENDOR_ID_IBM, 0xFFFF, PCI_CLASS_SYSTEM_PIC,
-                     pic_ibm_init),
+                     pic_ibm_setup),
 
     /* PIIX4 Power Management device (for ACPI) */
     PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82371AB_3,
-               piix4_pm_init),
+               piix4_pm_setup),
     PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_ICH9_SMBUS,
-               ich9_smbus_init),
+               ich9_smbus_setup),
 
     /* 0xff00 */
-    PCI_DEVICE_CLASS(PCI_VENDOR_ID_APPLE, 0x0017, 0xff00, apple_macio_init),
-    PCI_DEVICE_CLASS(PCI_VENDOR_ID_APPLE, 0x0022, 0xff00, apple_macio_init),
+    PCI_DEVICE_CLASS(PCI_VENDOR_ID_APPLE, 0x0017, 0xff00, apple_macio_setup),
+    PCI_DEVICE_CLASS(PCI_VENDOR_ID_APPLE, 0x0022, 0xff00, apple_macio_setup),
 
     PCI_DEVICE_END,
 };
@@ -316,12 +320,50 @@ static void pci_bios_init_devices(void)
     }
 }
 
+static void pci_enable_default_vga(void)
+{
+    struct pci_device *pci;
+
+    foreachpci(pci) {
+        if (is_pci_vga(pci)) {
+            dprintf(1, "PCI: Using %02x:%02x.%x for primary VGA\n",
+                    pci_bdf_to_bus(pci->bdf), pci_bdf_to_dev(pci->bdf),
+                    pci_bdf_to_fn(pci->bdf));
+            return;
+        }
+    }
+
+    pci = pci_find_class(PCI_CLASS_DISPLAY_VGA);
+    if (!pci) {
+        dprintf(1, "PCI: No VGA devices found\n");
+        return;
+    }
+
+    dprintf(1, "PCI: Enabling %02x:%02x.%x for primary VGA\n",
+            pci_bdf_to_bus(pci->bdf), pci_bdf_to_dev(pci->bdf),
+            pci_bdf_to_fn(pci->bdf));
+
+    pci_config_maskw(pci->bdf, PCI_COMMAND, 0,
+                     PCI_COMMAND_IO | PCI_COMMAND_MEMORY);
+
+    while (pci->parent) {
+        pci = pci->parent;
+
+        dprintf(1, "PCI: Setting VGA enable on bridge %02x:%02x.%x\n",
+                pci_bdf_to_bus(pci->bdf), pci_bdf_to_dev(pci->bdf),
+                pci_bdf_to_fn(pci->bdf));
+
+        pci_config_maskw(pci->bdf, PCI_BRIDGE_CONTROL, 0, PCI_BRIDGE_CTL_VGA);
+        pci_config_maskw(pci->bdf, PCI_COMMAND, 0,
+                         PCI_COMMAND_IO | PCI_COMMAND_MEMORY);
+    }
+}
 
 /****************************************************************
  * Platform device initialization
  ****************************************************************/
 
-void i440fx_mem_addr_init(struct pci_device *dev, void *arg)
+void i440fx_mem_addr_setup(struct pci_device *dev, void *arg)
 {
     if (RamSize <= 0x80000000)
         pcimem_start = 0x80000000;
@@ -331,7 +373,7 @@ void i440fx_mem_addr_init(struct pci_device *dev, void *arg)
     pci_slot_get_irq = piix_pci_slot_get_irq;
 }
 
-void mch_mem_addr_init(struct pci_device *dev, void *arg)
+void mch_mem_addr_setup(struct pci_device *dev, void *arg)
 {
     u64 addr = Q35_HOST_BRIDGE_PCIEXBAR_ADDR;
     u32 size = Q35_HOST_BRIDGE_PCIEXBAR_SIZE;
@@ -353,9 +395,9 @@ void mch_mem_addr_init(struct pci_device *dev, void *arg)
 
 static const struct pci_device_id pci_platform_tbl[] = {
     PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82441,
-               i440fx_mem_addr_init),
+               i440fx_mem_addr_setup),
     PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_Q35_MCH,
-               mch_mem_addr_init),
+               mch_mem_addr_setup),
     PCI_DEVICE_END
 };
 
@@ -501,30 +543,30 @@ static int pci_bios_bridge_region_is64(struct pci_region *r,
     }
     if ((pmem & PCI_PREF_RANGE_TYPE_MASK) != PCI_PREF_RANGE_TYPE_64)
        return 0;
-    struct pci_region_entry *entry = r->list;
-    while (entry) {
+    struct pci_region_entry *entry;
+    hlist_for_each_entry(entry, &r->list, node) {
         if (!entry->is64)
             return 0;
-        entry = entry->next;
     }
     return 1;
 }
 
 static u64 pci_region_align(struct pci_region *r)
 {
-    if (!r->list)
-        return 1;
-    // The first entry in the sorted list has the largest alignment
-    return r->list->align;
+    struct pci_region_entry *entry;
+    hlist_for_each_entry(entry, &r->list, node) {
+        // The first entry in the sorted list has the largest alignment
+        return entry->align;
+    }
+    return 1;
 }
 
 static u64 pci_region_sum(struct pci_region *r)
 {
-    struct pci_region_entry *entry = r->list;
     u64 sum = 0;
-    while (entry) {
+    struct pci_region_entry *entry;
+    hlist_for_each_entry(entry, &r->list, node) {
         sum += entry->size;
-        entry = entry->next;
     }
     return sum;
 }
@@ -532,18 +574,14 @@ static u64 pci_region_sum(struct pci_region *r)
 static void pci_region_migrate_64bit_entries(struct pci_region *from,
                                              struct pci_region *to)
 {
-    struct pci_region_entry **pprev = &from->list, **last = &to->list;
-    while (*pprev) {
-        struct pci_region_entry *entry = *pprev;
-        if (!entry->is64) {
-            pprev = &entry->next;
+    struct hlist_node *n, **last = &to->list.first;
+    struct pci_region_entry *entry;
+    hlist_for_each_entry_safe(entry, n, &from->list, node) {
+        if (!entry->is64)
             continue;
-        }
         // Move from source list to destination list.
-        *pprev = entry->next;
-        entry->next = NULL;
-        *last = entry;
-        last = &entry->next;
+        hlist_del(&entry->node);
+        hlist_add(&entry->node, last);
     }
 }
 
@@ -564,14 +602,13 @@ pci_region_create_entry(struct pci_bus *bus, struct pci_device *dev,
     entry->is64 = is64;
     entry->type = type;
     // Insert into list in sorted order.
-    struct pci_region_entry **pprev;
-    for (pprev = &bus->r[type].list; *pprev; pprev = &(*pprev)->next) {
-        struct pci_region_entry *pos = *pprev;
+    struct hlist_node **pprev;
+    struct pci_region_entry *pos;
+    hlist_for_each_entry_pprev(pos, pprev, &bus->r[type].list, node) {
         if (pos->align < align || (pos->align == align && pos->size < size))
             break;
     }
-    entry->next = *pprev;
-    *pprev = entry;
+    hlist_add(&entry->node, pprev);
     return entry;
 }
 
@@ -710,17 +747,17 @@ pci_region_map_one_entry(struct pci_region_entry *entry, u64 addr)
 
 static void pci_region_map_entries(struct pci_bus *busses, struct pci_region *r)
 {
-    struct pci_region_entry *entry = r->list;
-    while (entry) {
+    struct hlist_node *n;
+    struct pci_region_entry *entry;
+    hlist_for_each_entry_safe(entry, n, &r->list, node) {
         u64 addr = r->base;
         r->base += entry->size;
         if (entry->bar == -1)
             // Update bus base address if entry is a bridge region
             busses[entry->dev->secondary_bus].r[entry->type].base = addr;
         pci_region_map_one_entry(entry, addr);
-        struct pci_region_entry *next = entry->next;
+        hlist_del(&entry->node);
         free(entry);
-        entry = next;
     }
 }
 
@@ -728,8 +765,8 @@ static void pci_bios_map_devices(struct pci_bus *busses)
 {
     if (pci_bios_init_root_regions(busses)) {
         struct pci_region r64_mem, r64_pref;
-        r64_mem.list = NULL;
-        r64_pref.list = NULL;
+        r64_mem.list.first = NULL;
+        r64_pref.list.first = NULL;
         pci_region_migrate_64bit_entries(&busses[0].r[PCI_REGION_TYPE_MEM],
                                          &r64_mem);
         pci_region_migrate_64bit_entries(&busses[0].r[PCI_REGION_TYPE_PREFMEM],
@@ -771,11 +808,8 @@ static void pci_bios_map_devices(struct pci_bus *busses)
 void
 pci_setup(void)
 {
-    if (CONFIG_COREBOOT || usingXen()) {
-        // PCI setup already done by coreboot or Xen - just do probe.
-        pci_probe_devices();
+    if (!CONFIG_QEMU)
         return;
-    }
 
     dprintf(3, "pci setup\n");
 
@@ -807,4 +841,6 @@ pci_setup(void)
     pci_bios_init_devices();
 
     free(busses);
+
+    pci_enable_default_vga();
 }

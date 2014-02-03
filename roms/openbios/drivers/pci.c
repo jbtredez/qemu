@@ -17,6 +17,7 @@
 
 #include "config.h"
 #include "libopenbios/bindings.h"
+#include "libopenbios/ofmem.h"
 #include "kernel/kernel.h"
 #include "drivers/pci.h"
 #include "libc/byteorder.h"
@@ -24,6 +25,8 @@
 
 #include "drivers/drivers.h"
 #include "drivers/vga.h"
+#include "packages/video.h"
+#include "libopenbios/video.h"
 #include "timer.h"
 #include "pci.h"
 #include "pci_database.h"
@@ -137,6 +140,11 @@ static void dump_reg_property(const char* description, int nreg, u32 *reg)
     printk("\n");
 }
 #endif
+
+static unsigned long pci_bus_addr_to_host_addr(uint32_t ba)
+{
+    return arch->host_pci_base + (unsigned long)ba;
+}
 
 static void
 ob_pci_open(int *idx)
@@ -329,12 +337,50 @@ ob_pci_encode_unit(int *idx)
 	        ss, dev, fn, buf);
 }
 
+/* ( pci-addr.lo pci-addr.hi size -- virt ) */
+
+static void
+ob_pci_map_in(int *idx)
+{
+	phys_addr_t phys;
+	uint32_t ba;
+	ucell size, virt;
+
+	PCI_DPRINTF("ob_pci_bar_map_in idx=%p\n", idx);
+
+	size = POP();
+	POP();
+	ba = POP();
+
+	phys = pci_bus_addr_to_host_addr(ba);
+
+#if defined(CONFIG_OFMEM)
+	ofmem_claim_phys(phys, size, 0);
+
+#if defined(CONFIG_PPC)
+	/* For some reason PPC gets upset when virt != phys for map-in... */
+	virt = ofmem_claim_virt(phys, size, 0);
+#else
+	virt = ofmem_claim_virt(-1, size, size);
+#endif
+
+	ofmem_map(phys, virt, size, ofmem_arch_io_translation_mode(phys));
+
+#else
+	virt = size;	/* Keep compiler quiet */
+	virt = phys;
+#endif
+
+	PUSH(virt);
+}
+
 NODE_METHODS(ob_pci_bus_node) = {
 	{ NULL,			ob_pci_initialize	},
 	{ "open",		ob_pci_open		},
 	{ "close",		ob_pci_close		},
 	{ "decode-unit",	ob_pci_decode_unit	},
 	{ "encode-unit",	ob_pci_encode_unit	},
+	{ "pci-map-in",		ob_pci_map_in		},
 };
 
 NODE_METHODS(ob_pci_simple_node) = {
@@ -475,22 +521,14 @@ static void pci_host_set_ranges(const pci_config_t *config)
         ncells += host_encode_phys_addr(props + ncells, arch->rbase);
         ncells += pci_encode_size(props + ncells, arch->rlen);
 	}
-	if (arch->host_mem_base) {
+	if (arch->pci_mem_base) {
 	    ncells += pci_encode_phys_addr(props + ncells, 0, MEMORY_SPACE_32,
 				     config->dev, 0, arch->pci_mem_base);
-        ncells += host_encode_phys_addr(props + ncells, arch->host_mem_base);
-        ncells += pci_encode_size(props + ncells, arch->mem_len);
+        ncells += host_encode_phys_addr(props + ncells, arch->host_pci_base +
+				     arch->pci_mem_base);
+	ncells += pci_encode_size(props + ncells, arch->mem_len);
 	}
 	set_property(dev, "ranges", (char *)props, ncells * sizeof(props[0]));
-}
-
-static unsigned long pci_bus_addr_to_host_addr(uint32_t ba)
-{
-#ifdef CONFIG_SPARC64
-    return arch->cfg_data + (unsigned long)ba;
-#else
-    return (unsigned long)ba;
-#endif
 }
 
 int host_config_cb(const pci_config_t *config)
@@ -764,15 +802,36 @@ int macio_keylargo_config_cb (const pci_config_t *config)
 
 int vga_config_cb (const pci_config_t *config)
 {
-	if (config->assigned[0] != 0x00000000) {
-            vga_vbe_init(config->path,
-                         pci_bus_addr_to_host_addr(config->assigned[0] & ~0x0000000F),
-                         config->sizes[0],
-                         pci_bus_addr_to_host_addr(config->assigned[1] & ~0x0000000F),
-                         config->sizes[1]);
+        unsigned long rom;
+        uint32_t rom_size, size;
+        phandle_t ph;
 
-	    /* Currently we don't read FCode from the hardware but execute it directly */
-	    feval("['] vga-driver-fcode 2 cells + 1 byte-load");
+        if (config->assigned[0] != 0x00000000) {
+            setup_video();
+
+            rom = pci_bus_addr_to_host_addr(config->assigned[1] & ~0x0000000F);
+            rom_size = config->sizes[1];
+
+            ph = get_cur_dev();
+
+            if (rom_size >= 8) {
+                const char *p;
+
+                p = (const char *)rom;
+                if (p[0] == 'N' && p[1] == 'D' && p[2] == 'R' && p[3] == 'V') {
+                    size = *(uint32_t*)(p + 4);
+                    set_property(ph, "driver,AAPL,MacOS,PowerPC", p + 8, size);
+                }
+            }
+
+            /* Currently we don't read FCode from the hardware but execute it directly */
+            feval("['] vga-driver-fcode 2 cells + 1 byte-load");
+
+#ifdef CONFIG_MOL
+	    /* Install special words for Mac On Linux */
+	    molvideo_init();
+#endif
+
         }
 
 	return 0;

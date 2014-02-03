@@ -37,7 +37,7 @@ struct VideoParam_s video_param_table[29] VAR16;
  * PCI Data
  ****************************************************************/
 
-struct pci_data rom_pci_data VAR16VISIBLE = {
+struct pci_data rom_pci_data VAR16 VISIBLE16 = {
     .signature = PCI_ROM_SIGNATURE,
     .vendor = CONFIG_VGA_VID,
     .device = CONFIG_VGA_DID,
@@ -420,7 +420,7 @@ handle_1000(struct bregs *regs)
     else
         regs->al = 0x30;
 
-    int flags = GET_BDA(modeset_ctl) & (MF_NOPALETTE|MF_GRAYSUM);
+    int flags = MF_LEGACY | (GET_BDA(modeset_ctl) & (MF_NOPALETTE|MF_GRAYSUM));
     if (regs->al & 0x80)
         flags |= MF_NOCLEARMEM;
 
@@ -1281,7 +1281,7 @@ int HaveRunInit VAR16;
 void VISIBLE16
 vga_post(struct bregs *regs)
 {
-    debug_serial_setup();
+    debug_serial_preinit();
     dprintf(1, "Start SeaVGABIOS (version %s)\n", VERSION);
     debug_enter(regs, DEBUG_VGA_POST);
 
@@ -1294,7 +1294,7 @@ vga_post(struct bregs *regs)
             SET_VGA(VgaBDF, bdf);
     }
 
-    int ret = vgahw_init();
+    int ret = vgahw_setup();
     if (ret) {
         dprintf(1, "Failed to initialize VGA hardware.  Exiting.\n");
         return;

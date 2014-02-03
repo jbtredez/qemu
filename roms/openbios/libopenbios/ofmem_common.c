@@ -50,34 +50,37 @@ static ucell get_ram_size( void )
 
 #if 0
 static void
-print_range( range_t *r, char *str )
+print_range( range_t *r, const char *str )
 {
 	printk("--- Range %s ---\n", str );
 	for( ; r; r=r->next )
-		printk(FMT_plx " - " FMT_plx "\n", r->start, r->start + r->size - 1);
+		printk("%p : " FMT_plx " - " FMT_plx "\n", r, r->start, r->start + r->size - 1);
 	printk("\n");
 }
 
 static void
-print_phys_range()
+print_phys_range(void)
 {
-	print_range( ofmem.phys_range, "phys" );
+	ofmem_t *ofmem = ofmem_arch_get_private();
+	print_range( ofmem->phys_range, "phys" );
 }
 
 static void
-print_virt_range()
+print_virt_range(void)
 {
-	print_range( ofmem.virt_range, "virt" );
+	ofmem_t *ofmem = ofmem_arch_get_private();
+	print_range( ofmem->virt_range, "virt" );
 }
 
 static void
 print_trans( void )
 {
-	translation_t *t = ofmem.trans;
+	ofmem_t *ofmem = ofmem_arch_get_private();
+	translation_t *t = ofmem->trans;
 
 	printk("--- Translations ---\n");
 	for( ; t; t=t->next )
-		printk("%08lx -> " FMT_plx " [size %lx]\n", t->virt, t->phys, t->size);
+		printk("%p : " FMT_ucellx " -> " FMT_plx " [size " FMT_ucellx "]\n", t, t->virt, t->phys, t->size);
 	printk("\n");
 }
 #endif
@@ -875,9 +878,35 @@ phys_addr_t ofmem_translate( ucell virt, ucell *mode )
 	return -1;
 }
 
-static void remove_range( ucell ea, ucell size, range_t **r )
+static void remove_range_( phys_addr_t ea, ucell size, range_t **r )
 {
-    OFMEM_TRACE("%s: not implemented\n", __func__);
+	range_t *cr;
+
+	/* Handle special case if we're removing the first entry */
+	if ((**r).start >= ea) {
+		cr = *r;
+		*r = (**r).next;
+		free(cr);
+
+		return;
+	}
+
+	for( ; *r && ((**r).next)->start < ea; r=&(**r).next ) {
+	}
+
+	cr = (**r).next;
+	(**r).next = cr->next;
+	free(cr);
+}
+
+static int remove_range( phys_addr_t ea, ucell size, range_t **r )
+{
+	if( is_free( ea, size, *r ) ) {
+		OFMEM_TRACE("remove_range: range isn't occupied\n");
+		return -1;
+	}
+	remove_range_( ea, size, r );
+	return 0;
 }
 
 /* release memory allocated by ofmem_claim_phys */
@@ -898,6 +927,16 @@ void ofmem_release_virt( ucell virt, ucell size )
 
     ofmem_t *ofmem = ofmem_arch_get_private();
     remove_range(virt, size, &ofmem->virt_range);
+}
+
+/* release memory allocated by ofmem_claim_io */
+void ofmem_release_io( ucell virt, ucell size )
+{
+    OFMEM_TRACE("ofmem_release_io addr=" FMT_ucellx " size=" FMT_ucellx "\n",
+                virt, size);
+
+    ofmem_t *ofmem = ofmem_arch_get_private();
+    remove_range(virt, size, &ofmem->io_range);
 }
 
 /* release memory allocated by ofmem_claim - 6.3.2.4 */

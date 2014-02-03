@@ -23,9 +23,9 @@ const void *romvec;
 void go(void)
 {
 	ucell address, type, size;
-	int image_retval = 0, proplen, unit, part;
+	int image_retval = 0, intprop, proplen, target, device;
 	phandle_t chosen;
-	char *prop, *id, bootid;
+	char *prop, *id, *name;
 	static char bootpathbuf[128], bootargsbuf[128], buf[128];
 
 	/* Get the entry point and the type (see forth/debugging/client.fs) */
@@ -40,8 +40,19 @@ void go(void)
 	   needs to be set up to pass certain parameters using a C struct. Hence this section
 	   extracts the relevant boot information and places it in obp_arg. */
 	
-	/* Get the name of the selected boot device, along with the device and unit number */
+	/* Get the stdin and stdout paths */
 	chosen = find_dev("/chosen");
+	intprop = get_int_property(chosen, "stdin", &proplen);
+	PUSH(intprop);
+	fword("get-instance-path");
+	((struct linux_romvec *)romvec)->pv_stdin = pop_fstr_copy();
+
+	intprop = get_int_property(chosen, "stdout", &proplen);
+	PUSH(intprop);
+	fword("get-instance-path");
+	((struct linux_romvec *)romvec)->pv_stdout = pop_fstr_copy();
+
+	/* Get the name of the selected boot device, along with the device and unit number */
 	prop = get_property(chosen, "bootpath", &proplen);
 	strncpy(bootpathbuf, prop, proplen);
 	prop = get_property(chosen, "bootargs", &proplen);
@@ -53,40 +64,51 @@ void go(void)
         bootpath = pop_fstr_copy();
         printk("bootpath: %s\n", bootpath);
 
-        if (!strncmp(bootpathbuf, "cd", 2) || !strncmp(bootpathbuf, "disk", 4)) {
+	/* Now do some work to get hold of the target, partition etc. */
+	push_str(bootpathbuf);
+	feval("open-dev");
+	feval("ihandle>boot-device-handle drop to my-self");
+	push_str("name");
+	fword("get-my-property");
+	POP();
+	name = pop_fstr_copy();
+
+        if (!strncmp(name, "sd", 2)) {
+
+		/*
+		  Old-style SunOS disk paths are given in the form:
+
+			sd(c,t,d):s
+
+		  where:
+		    c = controller (Nth controller in system, usually 0)
+		    t = target (my-unit phys.hi)
+		    d = device/LUN (my-unit phys.lo)
+		    s = slice/partition (my-args)
+		*/
 
 		/* Controller currently always 0 */
 		obp_arg.boot_dev_ctrl = 0;
 
-		/* Grab the device and unit number string (in form unit,partition) */
-		push_str(bootpathbuf);
-		feval("pathres-resolve-aliases ascii @ right-split 2drop");
+		/* Get the target, device and slice */
+		fword("my-unit");
+		target = POP();
+		device = POP();
+
+		fword("my-args");
 		id = pop_fstr_copy();
 
-		/* A bit hacky, but we have no atoi() function */
-		unit = id[0] - '0';
-		part = id[2] - '0';
+		snprintf(buf, sizeof(buf), "sd(0,%d,%d):%c", target, device, id[0]);
 
-		obp_arg.boot_dev_unit = unit;
-		obp_arg.dev_partition = part;
-
-		/* Generate the "oldpath"
-		   FIXME: hardcoding this looks almost definitely wrong.
-		   With sd(0,2,0):b we get to see the solaris kernel though */
-                if (!strncmp(bootpathbuf, "disk", 4)) {
-			bootid = 'd';
-                } else {
-			bootid = 'b';
-                }
-
-		snprintf(buf, sizeof(buf), "sd(0,%d,%d):%c", unit, part, bootid);
+		obp_arg.boot_dev_unit = target;
+		obp_arg.dev_partition = id[0] - 'a';
 
 		obp_arg.boot_dev[0] = buf[0];
 		obp_arg.boot_dev[1] = buf[1];
 		obp_arg.argv[0] = buf;
         	obp_arg.argv[1] = bootargsbuf;
 
-        } else if (!strncmp(bootpathbuf, "floppy", 6)) {
+        } else if (!strncmp(name, "SUNW,fdtwo", 10)) {
 		
 		obp_arg.boot_dev_ctrl = 0;
 		obp_arg.boot_dev_unit = 0;
@@ -99,7 +121,7 @@ void go(void)
 		obp_arg.argv[0] = buf;
         	obp_arg.argv[1] = bootargsbuf;
 
-        } else if (!strncmp(bootpathbuf, "net", 3)) {
+        } else if (!strncmp(name, "le", 2)) {
 
 		obp_arg.boot_dev_ctrl = 0;
 		obp_arg.boot_dev_unit = 0;

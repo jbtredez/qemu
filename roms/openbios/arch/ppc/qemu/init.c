@@ -95,12 +95,12 @@ static const pci_arch_t known_arch[] = {
         .name = "PREP",
         .vendor_id = PCI_VENDOR_ID_MOTOROLA,
         .device_id = PCI_DEVICE_ID_MOTOROLA_RAVEN,
-        .cfg_addr = 0x80800000,
-        .cfg_data = 0x800c0000,
+        .cfg_addr = 0x80000cf8,
+        .cfg_data = 0x80000cfc,
         .cfg_base = 0x80000000,
         .cfg_len = 0x00100000,
-        .host_mem_base = 0xf0000000,
-        .pci_mem_base = 0xf0000000,
+        .host_pci_base = 0xc0000000,
+        .pci_mem_base = 0x100000, /* avoid VGA at 0xa0000 */
         .mem_len = 0x10000000,
         .io_base = 0x80000000,
         .io_len = 0x00010000,
@@ -116,7 +116,7 @@ static const pci_arch_t known_arch[] = {
         .cfg_data = 0xf2c00000,
         .cfg_base = 0xf2000000,
         .cfg_len = 0x02000000,
-        .host_mem_base = 0x80000000,
+        .host_pci_base = 0x0,
         .pci_mem_base = 0x80000000,
         .mem_len = 0x10000000,
         .io_base = 0xf2000000,
@@ -133,7 +133,7 @@ static const pci_arch_t known_arch[] = {
         .cfg_data = 0xf0c00000,
         .cfg_base = 0xf0000000,
         .cfg_len = 0x02000000,
-        .host_mem_base = 0x80000000,
+        .host_pci_base = 0x0,
         .pci_mem_base = 0x80000000,
         .mem_len = 0x10000000,
         .io_base = 0xf2000000,
@@ -150,7 +150,7 @@ static const pci_arch_t known_arch[] = {
         .cfg_data = 0xfee00000,
         .cfg_base = 0x80000000,
         .cfg_len = 0x7f000000,
-        .host_mem_base = 0x80000000,
+        .host_pci_base = 0x0,
         .pci_mem_base = 0x80000000,
         .mem_len = 0x10000000,
         .io_base = 0xfe000000,
@@ -870,18 +870,6 @@ arch_of_init(void)
     fword("find-device");
 
     push_str(stdin_path);
-    fword("open-dev");
-    fword("encode-int");
-    push_str("stdin");
-    fword("property");
-
-    push_str(stdout_path);
-    fword("open-dev");
-    fword("encode-int");
-    push_str("stdout");
-    fword("property");
-
-    push_str(stdin_path);
     fword("pathres-resolve-aliases");
     push_str("input-device");
     fword("$setenv");
@@ -890,12 +878,6 @@ arch_of_init(void)
     fword("pathres-resolve-aliases");
     push_str("output-device");
     fword("$setenv");
-
-    push_str(stdin_path);
-    fword("input");
-
-    push_str(stdout_path);
-    fword("output");
 
 #if 0
     if(getbool("tty-interface?") == 1)
