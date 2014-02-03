@@ -132,7 +132,7 @@ static void atlantronic_timer_cb(void* arg)
 	struct atlantronic_hokuyo_state *s = arg;
 
 	s->timer_count += HOKUYO_PERIOD_TICK;
-	qemu_mod_timer(s->timer, s->timer_count);
+	timer_mod(s->timer, s->timer_count);
 	if( s->clock_scale >= system_clock_scale)
 	{
 		if( s->send_scan_when_ready )
@@ -175,8 +175,8 @@ void atlantronic_hokuyo_in_recv_usart(struct atlantronic_hokuyo_state *s, unsign
 		{
 			if(s->timer_count == 0)
 			{
-				s->timer_count = qemu_get_clock_ns(vm_clock) + HOKUYO_PERIOD_TICK;
-				qemu_mod_timer(s->timer, s->timer_count);
+				s->timer_count = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + HOKUYO_PERIOD_TICK;
+				timer_mod(s->timer, s->timer_count);
 			}
 			// message BMxxx\n : reponse BMxxx\n00P\n\n
 			memcpy(s->tx_buffer, s->rx_buffer, s->rx_size);
@@ -227,7 +227,7 @@ int atlantronic_hokuyo_init(struct atlantronic_hokuyo_state *s, qemu_irq* irq_tx
 	s->pos_hokuyo = pos_hokuyo;
 	s->irq_tx = irq_tx;
 	s->timer_count = 0;
-	s->timer = qemu_new_timer(vm_clock, 1, atlantronic_timer_cb, s);
+	s->timer = timer_new(QEMU_CLOCK_VIRTUAL, 1, atlantronic_timer_cb, s);
 	s->scan_ready = 0;
 	s->send_scan_when_ready = 0;
 	s->rx_size = 0;
