@@ -18,6 +18,7 @@ struct atlantronic_usart_state
 	MemoryRegion iomem;
 	USART_TypeDef usart;
 	qemu_irq irq[ATLANTRONIC_USART_IRQ_MAX];
+	int halfDuplexLink;
 };
 
 static void atlantronic_usart_write(void *opaque, hwaddr offset, uint64_t val, unsigned size)
@@ -34,7 +35,7 @@ static void atlantronic_usart_write(void *opaque, hwaddr offset, uint64_t val, u
 			if( (s->usart.CR1 & USART_CR1_UE) && (s->usart.CR1 & USART_CR1_TE))
 			{
 				// mode half duplex et reception activée
-				if( (s->usart.CR3 & USART_CR3_HDSEL ) && (s->usart.CR1 & USART_CR1_RE) )
+				if( ((s->usart.CR3 & USART_CR3_HDSEL) || s->halfDuplexLink) && (s->usart.CR1 & USART_CR1_RE) )
 				{
 					s->usart.DR = val & 0x1ff;
 					s->usart.SR |= USART_SR_RXNE;
@@ -145,23 +146,31 @@ static void atlantronic_usart_in_recv(void * opaque, int numPin, int level)
 {
 	struct atlantronic_usart_state *s = opaque;
 
-	// usart activé et reception activée
-	if( (s->usart.CR1 & USART_CR1_UE) && (s->usart.CR1 & USART_CR1_RE) )
+	if( numPin == 0 )
 	{
-		s->usart.DR = level & 0x1ff;
-		s->usart.SR |= USART_SR_RXNE;
-
-		if( s->usart.CR1 & USART_CR1_RXNEIE )
+		// usart activé et reception activée
+		if( (s->usart.CR1 & USART_CR1_UE) && (s->usart.CR1 & USART_CR1_RE) )
 		{
-			// it reception : un octet a lire
-			qemu_set_irq(s->irq[ATLANTRONIC_USART_IRQ_HW], 1);
-		}
+			s->usart.DR = level & 0x1ff;
+			s->usart.SR |= USART_SR_RXNE;
 
-		if( s->usart.CR3 & USART_CR3_DMAR )
-		{
-			// buffer dma de reception => it dmar : un octet a lire
-			qemu_set_irq(s->irq[ATLANTRONIC_USART_IRQ_DMAR], 1);
+			if( s->usart.CR1 & USART_CR1_RXNEIE )
+			{
+				// it reception : un octet a lire
+				qemu_set_irq(s->irq[ATLANTRONIC_USART_IRQ_HW], 1);
+			}
+
+			if( s->usart.CR3 & USART_CR3_DMAR )
+			{
+				// buffer dma de reception => it dmar : un octet a lire
+				qemu_set_irq(s->irq[ATLANTRONIC_USART_IRQ_DMAR], 1);
+			}
 		}
+	}
+	else if( numPin == 1 )
+	{
+		// lien qui se comporte comme un half duplex
+		s->halfDuplexLink = 1;
 	}
 }
 
@@ -173,8 +182,9 @@ static int atlantronic_usart_init(SysBusDevice * dev)
 	sysbus_init_mmio(dev, &s->iomem);
 
 	qdev_init_gpio_out(DEVICE(dev), s->irq, ATLANTRONIC_USART_IRQ_MAX);
-	qdev_init_gpio_in(DEVICE(dev), atlantronic_usart_in_recv, 1);
+	qdev_init_gpio_in(DEVICE(dev), atlantronic_usart_in_recv, 2);
 
+	s->halfDuplexLink = 0;
 	atlantronic_usart_reset(&s->usart);
 
     return 0;
