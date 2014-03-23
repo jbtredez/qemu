@@ -37,6 +37,13 @@ struct atlantronic_usb_rx_event
 	};
 };
 
+enum usb_state
+{
+	USB_STATE_NOT_CONNECTED,
+	USB_STATE_ADDRESSED,
+	USB_STATE_CONFIGURED,
+};
+
 struct atlantronic_usb_state
 {
 	SysBusDevice busdev;
@@ -55,6 +62,7 @@ struct atlantronic_usb_state
 	uint32_t event_start;
 	uint32_t event_end;
 	QemuMutex event_mutex;
+	enum usb_state usb_state;
 
 	// fifos d'envoi
 	int32_t tx_count[NUM_TX_FIFOS];
@@ -357,6 +365,7 @@ static void atlantronic_usb_write_dev(struct atlantronic_usb_state *usb, hwaddr 
 				{
 					//printf("[QEMU] usb addressed (%d)\n", new_dcfg.b.devaddr);
 					qemu_mutex_lock(&usb->event_mutex);
+					usb->usb_state = USB_STATE_ADDRESSED;
 					if((usb->event_end + 1) % EVENT_NUM != usb->event_start)
 					{
 						// il reste de la place
@@ -540,6 +549,7 @@ static void atlantronic_usb_write_douteps(struct atlantronic_usb_state *usb, hwa
 				{
 					usb->gregs.GINTSTS &= ~0x80000;       // IT out EP
 					//printf("[QEMU] paquet ok\n");
+					usb->usb_state = USB_STATE_CONFIGURED;
 					qemu_set_irq(usb->irq, 0);
 					atlantronic_usb_send_next_event(usb, false);
 				}
@@ -696,7 +706,15 @@ static uint64_t atlantronic_usb_read(void *opaque, hwaddr offset, unsigned size)
 
 static int atlantronic_usb_can_receive(void *opaque)
 {
-	return EVENT_DATA_SIZE;
+	struct atlantronic_usb_state *usb = opaque;
+	if( usb->usb_state == USB_STATE_CONFIGURED)
+	{
+		return EVENT_DATA_SIZE;
+	}
+	else
+	{
+		return 0;
+	}
 }
 
 static void atlantronic_usb_receive(void *opaque, const uint8_t* buf, int size)
@@ -759,6 +777,7 @@ static int atlantronic_usb_init(SysBusDevice * dev)
 
 	s->event_start = 0;
 	s->event_end = 0;
+	s->usb_state = USB_STATE_NOT_CONNECTED;
 	qemu_mutex_init(&s->event_mutex);
 
     return 0;
