@@ -20,7 +20,7 @@
 #define PWM_NUM            4
 #define ENCODER_NUM        3
 #define CAN_MOTOR_NUM      6
-#define AX12_NUM           6
+#define AX12_NUM           8
 #define RX24_NUM           6
 #define HOKUYO_NUM         2
 
