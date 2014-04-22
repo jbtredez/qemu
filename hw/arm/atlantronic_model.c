@@ -573,6 +573,16 @@ static void atlantronic_model_timer_cb(void* arg)
 		atlantronic_can_motor_update(&s->can_motor[i], dt);
 	}
 
+	// mise a jour des dynamixels
+	for(i = 0; i < AX12_NUM; i++)
+	{
+		atlantronic_dynamixel_update(&s->ax12[i], dt);
+	}
+	for(i = 0; i < RX24_NUM; i++)
+	{
+		atlantronic_dynamixel_update(&s->rx24[i], dt);
+	}
+
 	atlantronic_model_update_odometry(s, dt);
 	for(i = 0; i < HOKUYO_NUM; i++)
 	{

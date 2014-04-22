@@ -24,4 +24,6 @@ int atlantronic_dynamixel_init(struct atlantronic_dynamixel_state *s, qemu_irq* 
 
 void atlantronic_dynamixel_in_recv_usart(struct atlantronic_dynamixel_state *s, unsigned char data);
 
+void atlantronic_dynamixel_update(struct atlantronic_dynamixel_state *s, double dt);
+
 #endif

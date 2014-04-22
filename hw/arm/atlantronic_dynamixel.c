@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <math.h>
 #include "hw/sysbus.h"
 #include "hw/boards.h"
 #include "hw/arm/arm.h"
@@ -66,6 +67,11 @@ enum
 	DYNAMIXEL_PUNCH_L,
 	DYNAMIXEL_PUNCH_H
 };
+
+#define DYNAMIXEL_POS_TO_RD          (150 * M_PI / (0x1ff * 180.0f))
+#define DYNAMIXEL_RD_TO_POS          (0x1ff * 180 / (150 * M_PI))
+
+#define DYNAMIXEL_MAX_MOVING_SPEED_RD      11.938f       // 114 rpm
 
 static void atlantronic_dynamixel_send_buffer(struct atlantronic_dynamixel_state* s)
 {
@@ -277,8 +283,8 @@ int atlantronic_dynamixel_init(struct atlantronic_dynamixel_state *s, qemu_irq* 
 	s->control_table[DYNAMIXEL_GOAL_POSITION_H]           = 0;
 	s->control_table[DYNAMIXEL_MOVING_SPEED_L]            = 0;
 	s->control_table[DYNAMIXEL_MOVING_SPEED_H]            = 0;
-	s->control_table[DYNAMIXEL_TORQUE_LIMIT_L]            = 0;
-	s->control_table[DYNAMIXEL_TORQUE_LIMIT_H]            = 0;
+	s->control_table[DYNAMIXEL_TORQUE_LIMIT_L]            = s->control_table[DYNAMIXEL_MAX_TORQUE_L];
+	s->control_table[DYNAMIXEL_TORQUE_LIMIT_H]            = s->control_table[DYNAMIXEL_MAX_TORQUE_H];
 	s->control_table[DYNAMIXEL_PRESENT_POSITION_L]        = 0xff;
 	s->control_table[DYNAMIXEL_PRESENT_POSITION_H]        = 1;
 	s->control_table[DYNAMIXEL_PRESENT_SPEED_L]           = 0;
@@ -295,4 +301,39 @@ int atlantronic_dynamixel_init(struct atlantronic_dynamixel_state *s, qemu_irq* 
 	s->control_table[DYNAMIXEL_PUNCH_H]                   = 0;
 
     return 0;
+}
+
+void atlantronic_dynamixel_update(struct atlantronic_dynamixel_state *s, double dt)
+{
+	uint16_t goal_pos = (s->control_table[DYNAMIXEL_GOAL_POSITION_H] << 8) + s->control_table[DYNAMIXEL_GOAL_POSITION_L];
+	uint16_t speed = (s->control_table[DYNAMIXEL_MOVING_SPEED_H] << 8) + s->control_table[DYNAMIXEL_MOVING_SPEED_L];
+	uint16_t torque = (s->control_table[DYNAMIXEL_TORQUE_LIMIT_H] << 8) +  s->control_table[DYNAMIXEL_TORQUE_LIMIT_L];
+	// vmax si c'est 0 ou plus grand que vmax
+	if(speed == 0 || speed > 0x3ff)
+	{
+		speed = 0x3ff;
+	}
+	float vmax = speed * DYNAMIXEL_MAX_MOVING_SPEED_RD / 1023.0f;
+	if( torque > 0x3ff)
+	{
+		torque = 0x3ff;
+	}
+
+	float deltaMax = vmax * dt * (torque / 1023.0f);
+	float error = DYNAMIXEL_POS_TO_RD * goal_pos - s->theta;
+
+	if( error > deltaMax)
+	{
+		error = deltaMax;
+	}
+	else if( error < -deltaMax)
+	{
+		error = -deltaMax;
+	}
+
+	s->theta += error;
+	uint16_t pos = DYNAMIXEL_RD_TO_POS * s->theta;
+
+	s->control_table[DYNAMIXEL_PRESENT_POSITION_L] = pos & 0xff;
+	s->control_table[DYNAMIXEL_PRESENT_POSITION_H] = (pos >> 8) & 0xff;
 }
