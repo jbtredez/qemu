@@ -13,6 +13,9 @@
 
 #include "kernel/robot_parameters.h"
 #include "kernel/rcc.h"
+#define LINUX
+#include "discovery/gpio.h"
+#undef LINUX
 
 #define MODEL_DT           0.001f       //!< modele a 1ms
 #define MODEL_PERIOD_TICK  (int)(RCC_SYSCLK*MODEL_DT)
@@ -30,6 +33,7 @@ enum
 	EVENT_NEW_OBJECT,
 	EVENT_MOVE_OBJECT,
 	EVENT_MANAGE_CANOPEN_NODE,
+	EVENT_SET_IO,
 };
 
 enum
@@ -475,6 +479,27 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 			break;
 		case EVENT_MANAGE_CANOPEN_NODE:
 			atlantronic_canopen_manage_node_connextion(&model->canopen, event->data32[0], event->data32[1] == EVENT_MANAGE_CANOPEN_NODE_CONNECT ? 1 : 0);
+			break;
+		case EVENT_SET_IO:
+			{
+				if(event->data32[0] & GPIO_IN_1) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_1], event->data32[1]);
+				if(event->data32[0] & GPIO_IN_2) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_2], event->data32[1]);
+				if(event->data32[0] & GPIO_IN_3) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_3], event->data32[1]);
+				if(event->data32[0] & GPIO_IN_4) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_4], event->data32[1]);
+				if(event->data32[0] & GPIO_IN_5) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_5], event->data32[1]);
+				if(event->data32[0] & GPIO_IN_6) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_6], event->data32[1]);
+				if(event->data32[0] & GPIO_IN_7) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_7], event->data32[1]);
+				if(event->data32[0] & GPIO_IN_8) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_8], event->data32[1]);
+				if(event->data32[0] & GPIO_IN_9) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_9], event->data32[1]);
+				if(event->data32[0] & GPIO_IN_10) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_10], event->data32[1]);
+				if(event->data32[0] & GPIO_IN_11) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_11], event->data32[1]);
+				if(event->data32[0] & GPIO_IN_12) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_12], event->data32[1]);
+				if(event->data32[0] & GPIO_IN_13) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_13], event->data32[1]);
+				if(event->data32[0] & GPIO_IN_14) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_14], event->data32[1]);
+				if(event->data32[0] & GPIO_IN_BTN1) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_BTN1], event->data32[1]);
+				if(event->data32[0] & GPIO_IN_BTN2) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_BTN2], event->data32[1]);
+				if(event->data32[0] & GPIO_IN_GO) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_GO], event->data32[1]);
+			}
 			break;
 	}
 }
