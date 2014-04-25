@@ -5,7 +5,9 @@
 
 #include "atlantronic_model.h"
 #include "atlantronic_can.h"
-
+#include "atlantronic_gpio.h"
+#include "atlantronic_syscfg.h"
+#include "atlantronic_exti.h"
 #include "atlantronic_cpu.h"
 
 #define USB_OTG_FS_BASE_ADDR      0x50000000
@@ -25,12 +27,32 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	sysbus_create_simple("atlantronic-rcc", RCC_BASE, NULL);
 
 	// gpio
-	/*DeviceState* gpioa = */sysbus_create_simple("atlantronic-gpio", GPIOA_BASE, NULL);
+	DeviceState* gpioa = sysbus_create_simple("atlantronic-gpio", GPIOA_BASE, NULL);
 	DeviceState* gpiob = sysbus_create_simple("atlantronic-gpio", GPIOB_BASE, NULL);
 	DeviceState* gpioc = sysbus_create_simple("atlantronic-gpio", GPIOC_BASE, NULL);
 	DeviceState* gpiod = sysbus_create_simple("atlantronic-gpio", GPIOD_BASE, NULL);
 	DeviceState* gpioe = sysbus_create_simple("atlantronic-gpio", GPIOE_BASE, NULL);
-	sysbus_create_simple("atlantronic-gpio", GPIOF_BASE, NULL);
+	DeviceState* gpiof = sysbus_create_simple("atlantronic-gpio", GPIOF_BASE, NULL);
+
+	// syscfg
+	DeviceState* syscfg = sysbus_create_simple("atlantronic-syscfg", SYSCFG_BASE, NULL);
+	qdev_connect_gpio_out(gpioa, GPIO_IRQ_OUT_CHANGE_PIN, qdev_get_gpio_in(syscfg, SYSCFG_IRQ_IN_GPIOA));
+	qdev_connect_gpio_out(gpiob, GPIO_IRQ_OUT_CHANGE_PIN, qdev_get_gpio_in(syscfg, SYSCFG_IRQ_IN_GPIOB));
+	qdev_connect_gpio_out(gpioc, GPIO_IRQ_OUT_CHANGE_PIN, qdev_get_gpio_in(syscfg, SYSCFG_IRQ_IN_GPIOC));
+	qdev_connect_gpio_out(gpiod, GPIO_IRQ_OUT_CHANGE_PIN, qdev_get_gpio_in(syscfg, SYSCFG_IRQ_IN_GPIOD));
+	qdev_connect_gpio_out(gpioe, GPIO_IRQ_OUT_CHANGE_PIN, qdev_get_gpio_in(syscfg, SYSCFG_IRQ_IN_GPIOE));
+	qdev_connect_gpio_out(gpiof, GPIO_IRQ_OUT_CHANGE_PIN, qdev_get_gpio_in(syscfg, SYSCFG_IRQ_IN_GPIOF));
+
+	// exti
+	DeviceState* exti = sysbus_create_simple("atlantronic-exti", EXTI_BASE, NULL);
+	qdev_connect_gpio_out(syscfg, SYSCFG_IRQ_OUT_EXTI, qdev_get_gpio_in(exti, EXTI_IRQ_IN_IO));
+	qdev_connect_gpio_out(exti, 0, pic[EXTI0_IRQn]);
+	qdev_connect_gpio_out(exti, 1, pic[EXTI1_IRQn]);
+	qdev_connect_gpio_out(exti, 2, pic[EXTI2_IRQn]);
+	qdev_connect_gpio_out(exti, 3, pic[EXTI3_IRQn]);
+	qdev_connect_gpio_out(exti, 4, pic[EXTI4_IRQn]);
+	qdev_connect_gpio_out(exti, 5, pic[EXTI9_5_IRQn]);
+	qdev_connect_gpio_out(exti, 6, pic[EXTI15_10_IRQn]);
 
 	// tim
 	/*DeviceState* tim1 = */sysbus_create_simple("atlantronic-tim", TIM1_BASE, NULL);

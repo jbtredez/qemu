@@ -2,8 +2,7 @@
 #include "hw/boards.h"
 #include "hw/arm/arm.h"
 #include "atlantronic_cpu.h"
-
-#define PIN_NUM        16
+#include "atlantronic_gpio.h"
 
 enum gpio_mode
 {
@@ -18,7 +17,7 @@ struct atlantronic_gpio_state
 	SysBusDevice busdev;
 	MemoryRegion iomem;
 	GPIO_TypeDef gpio;
-	qemu_irq irq[PIN_NUM];
+	qemu_irq irq[GPIO_IRQ_OUT_NUM];
 };
 
 static void atlantronic_gpio_write(void *opaque, hwaddr offset, uint64_t val, unsigned size)
@@ -117,12 +116,11 @@ static const MemoryRegionOps atlantronic_gpio_ops =
 
 static void atlantronic_gpio_in_recv(void * opaque, int numPin, int level)
 {
-	(void) opaque;
-	(void) numPin;
-	(void) level;
 	struct atlantronic_gpio_state *s = opaque;
 
 	int mode = (s->gpio.MODER >> (2 * numPin)) & 0x03;
+	uint32_t oldLevel = s->gpio.IDR;
+	numPin &= 0x0f;
 
 	switch(mode)
 	{
@@ -131,11 +129,16 @@ static void atlantronic_gpio_in_recv(void * opaque, int numPin, int level)
 			// io 0 / 1
 			if(level)
 			{
+				level = 1;
 				s->gpio.IDR |= (1 << numPin);
 			}
 			else
 			{
 				s->gpio.IDR &= ~(1 << numPin);
+			}
+			if( oldLevel != s->gpio.IDR )
+			{
+				qemu_set_irq(s->irq[GPIO_IRQ_OUT_CHANGE_PIN], numPin + (level << 4));
 			}
 			break;
 		case GPIO_MODE_OUT:
@@ -160,7 +163,7 @@ static int atlantronic_gpio_init(SysBusDevice * dev)
 	memory_region_init_io(&s->iomem, OBJECT(s), &atlantronic_gpio_ops, s, "atlantronic_gpio", 0x400);
 	sysbus_init_mmio(dev, &s->iomem);
 
-	qdev_init_gpio_out(DEVICE(dev), s->irq, PIN_NUM);
+	qdev_init_gpio_out(DEVICE(dev), s->irq, GPIO_IRQ_OUT_NUM);
 	qdev_init_gpio_in(DEVICE(dev), atlantronic_gpio_in_recv, PIN_NUM);
 
 	atlantronic_gpio_reset(&s->gpio);

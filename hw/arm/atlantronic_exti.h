@@ -1,0 +1,10 @@
+#ifndef ATLANTRONIC_EXTI_H
+#define ATLANTRONIC_EXTI_H
+
+enum
+{
+	EXTI_IRQ_IN_IO = 0,
+	EXTI_IRQ_IN_NUM
+};
+
+#endif
