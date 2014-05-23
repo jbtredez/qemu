@@ -116,7 +116,7 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	qdev_connect_gpio_out(dma2, 5, pic[DMA2_Stream5_IRQn]);
 	qdev_connect_gpio_out(dma2, 6, pic[DMA2_Stream6_IRQn]);
 	qdev_connect_gpio_out(dma2, 7, pic[DMA2_Stream7_IRQn]);
-#if 0
+
 	// adc
 	DeviceState* adc1 = sysbus_create_simple("atlantronic-adc", ADC1_BASE, NULL);
 	sysbus_create_simple("atlantronic-adc", ADC2_BASE, NULL);
@@ -136,8 +136,8 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	qdev_connect_gpio_out(gpioc, 3, qdev_get_gpio_in(adc1, 13));  // AN13 = PC3
 	qdev_connect_gpio_out(gpioc, 4, qdev_get_gpio_in(adc1, 14));  // AN14 = PC4
 	qdev_connect_gpio_out(gpioc, 5, qdev_get_gpio_in(adc1, 15));  // AN15 = PC5
-	qdev_connect_gpio_out(adc1, 0, qdev_get_gpio_in(dma1_chan1, 0));  // adc1 -> dma1_chan1
-#endif
+	qdev_connect_gpio_out(adc1, 0, qdev_get_gpio_in(dma2_stream4, 0));  // adc1 -> dma2_stream4
+
 	// usart
 	DeviceState* usart2 = sysbus_create_simple("atlantronic-usart", USART2_BASE, NULL);
 	DeviceState* usart3 = sysbus_create_simple("atlantronic-usart", USART3_BASE, NULL);

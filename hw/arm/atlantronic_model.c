@@ -617,7 +617,7 @@ static void atlantronic_model_timer_cb(void* arg)
 
 static int atlantronic_model_init(SysBusDevice * dev)
 {
-    struct atlantronic_model_state *s = OBJECT_CHECK(struct atlantronic_model_state, dev, "atlantronic-model");
+	struct atlantronic_model_state *s = OBJECT_CHECK(struct atlantronic_model_state, dev, "atlantronic-model");
 
 	sysbus_init_mmio(dev, &s->iomem);
 
@@ -640,7 +640,7 @@ static int atlantronic_model_init(SysBusDevice * dev)
 	s->timer_count = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + MODEL_PERIOD_TICK;
 	timer_mod(s->timer, s->timer_count);
 
-    return 0;
+	return 0;
 }
 
 static void atlantronic_model_class_init(ObjectClass *klass, void *data)
