@@ -6,12 +6,19 @@
 
 #define MOTOR_ENCODER_RESOLUTION         3000
 
+enum
+{
+	MOTOR_CMD_SPEED,
+	MOTOR_CMD_POSITION,
+};
 
 struct atlantronic_can_motor
 {
 	struct canopen_node node;
 	uint32_t statusWord;   //!< status word
 	int32_t speedCmd;      //! commande de vitesse en rpm
+	int32_t posCmd;        //!< commande de position
+	int32_t kinematicsMode; //!< mode (MOTOR_CMD_SPEED ou MOTOR_CMD_POSITION)
 	float positionOffset;  //!< offset sur la position
 	float raw_pos;     //! position actuelle
 	float raw_v;       //! vitesse actuelle

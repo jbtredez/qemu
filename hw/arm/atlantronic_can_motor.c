@@ -32,8 +32,32 @@ void atlantronic_can_motor_init(struct atlantronic_can_motor* s, float outputGai
 
 void atlantronic_can_motor_update(struct atlantronic_can_motor* motor, float dt)
 {
-	motor->raw_v = (MOTOR_ENCODER_RESOLUTION * motor->speedCmd) / 60;
-	motor->raw_pos += motor->raw_v * dt;
+	if( motor->kinematicsMode == MOTOR_CMD_SPEED )
+	{
+		motor->raw_v = (MOTOR_ENCODER_RESOLUTION * motor->speedCmd) / 60;
+		motor->raw_pos += motor->raw_v * dt;
+	}
+	else if( motor->kinematicsMode == MOTOR_CMD_POSITION )
+	{
+		float old_pos = motor->raw_pos;
+		if( motor->raw_pos < motor->posCmd )
+		{
+			motor->raw_pos += 100;
+			if( motor->raw_pos > motor->posCmd)
+			{
+				motor->raw_pos = motor->posCmd;
+			}
+		}
+		else
+		{
+			motor->raw_pos -= 100;
+			if( motor->raw_pos < motor->posCmd)
+			{
+				motor->raw_pos = motor->posCmd;
+			}
+		}
+		motor->raw_v = (motor->raw_pos - old_pos) / dt;
+	}
 	motor->dtSync += dt;
 	motor->pos = motor->positionOffset + motor->outputGain * motor->raw_pos;
 	motor->v = motor->outputGain * motor->raw_v;
@@ -90,8 +114,20 @@ void atlantronic_can_motor_callback(struct atlantronic_canopen* canopen, struct 
 					motor->statusWord = 0x27;
 					atlantronic_can_motor_send_pdo1(motor, canopen);
 					break;
+				case CAN_MOTOR_CMD_DI:
+					// on passe en "switch on disable"
+					motor->statusWord = 0x60;
+					atlantronic_can_motor_send_pdo1(motor, canopen);
+					motor->kinematicsMode = MOTOR_CMD_SPEED;
+					motor->speedCmd = 0;
+					break;
 				case CAN_MOTOR_CMD_V:
 					memcpy(&motor->speedCmd, &msg.data[1], 4);
+					motor->kinematicsMode = MOTOR_CMD_SPEED;
+					break;
+				case CAN_MOTOR_CMD_LA:
+					memcpy(&motor->posCmd, &msg.data[1], 4);
+					motor->kinematicsMode = MOTOR_CMD_POSITION;
 					break;
 				case CAN_MOTOR_CMD_GOHOSEQ:
 					motor->statusWord |= (1 << 14);
