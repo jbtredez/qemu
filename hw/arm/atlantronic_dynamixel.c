@@ -279,8 +279,8 @@ int atlantronic_dynamixel_init(struct atlantronic_dynamixel_state *s, qemu_irq* 
 	}
 	s->control_table[DYNAMIXEL_CW_COMPLIANCE_SLOPE]       = 0x20;
 	s->control_table[DYNAMIXEL_CCW_COMPLIANCE_SLOPE]      = 0x20;
-	s->control_table[DYNAMIXEL_GOAL_POSITION_L]           = 0;
-	s->control_table[DYNAMIXEL_GOAL_POSITION_H]           = 0;
+	s->control_table[DYNAMIXEL_GOAL_POSITION_L]           = 0xff;
+	s->control_table[DYNAMIXEL_GOAL_POSITION_H]           = 1;
 	s->control_table[DYNAMIXEL_MOVING_SPEED_L]            = 0;
 	s->control_table[DYNAMIXEL_MOVING_SPEED_H]            = 0;
 	s->control_table[DYNAMIXEL_TORQUE_LIMIT_L]            = s->control_table[DYNAMIXEL_MAX_TORQUE_L];
