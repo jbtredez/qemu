@@ -10037,7 +10037,7 @@ static inline void gen_intermediate_code_internal(ARMCPU *cpu,
 #if !defined(CONFIG_USER_ONLY)
         dc->user = (ARM_TBFLAG_PRIV(tb->flags) == 0);
 #endif
-        dc->vfp_enabled = 1;//ARM_TBFLAG_VFPEN(tb->flags);
+        dc->vfp_enabled = ARM_TBFLAG_VFPEN(tb->flags);
         dc->vec_len = ARM_TBFLAG_VECLEN(tb->flags);
         dc->vec_stride = ARM_TBFLAG_VECSTRIDE(tb->flags);
     }

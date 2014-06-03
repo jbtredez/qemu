@@ -882,9 +882,9 @@ static inline void cpu_get_tb_cpu_state(CPUARMState *env, target_ulong *pc,
         if (privmode) {
             *flags |= ARM_TBFLAG_PRIV_MASK;
         }
-        if (env->vfp.xregs[ARM_VFP_FPEXC] & (1 << 30)) {
+        //if (env->vfp.xregs[ARM_VFP_FPEXC] & (1 << 30)) {
             *flags |= ARM_TBFLAG_VFPEN_MASK;
-        }
+        //}
     }
 
     *cs_base = 0;
