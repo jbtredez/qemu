@@ -6,6 +6,7 @@
 #undef TRUE
 #undef bool
 #define STM32F4XX
+#define STM32F407xx
 #include "kernel/cpu/cpu.h"
 #undef LINUX
 

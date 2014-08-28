@@ -469,7 +469,7 @@ static void atlantronic_usb_write_dineps(struct atlantronic_usb_state *usb, hwad
 			usb->dineps[i].DIEPCTL = val;
 			break;
 		case offsetof(USB_OTG_INEPREGS, DIEPINT):
-			usb->dineps[i].DIEPINT = val;
+			usb->dineps[i].DIEPINT &= ~val;
 			if(val == 0x80)
 			{
 				// Une fois le message lu, on met le flag xfrc (transfert terminé)
@@ -480,10 +480,6 @@ static void atlantronic_usb_write_dineps(struct atlantronic_usb_state *usb, hwad
 					usb->dineps[i].DIEPINT |= 0x01; // xfrc
 					usb->gregs.GINTSTS |= 0x40000;   // IT in EP (inepint)
 					qemu_set_irq(usb->irq, 1);
-				}
-				else
-				{
-					qemu_set_irq(usb->irq, 0);
 				}
 			}
 			else
@@ -620,7 +616,8 @@ static void atlantronic_usb_write_fifo(struct atlantronic_usb_state *usb, hwaddr
 		return;
 	}
 
-	int remain = (usb->dineps[i].DIEPTSIZ & 0x7ffff) - usb->tx_count[i];
+	int xfrsiz = usb->dineps[i].DIEPTSIZ & 0x7ffff;
+	int remain = xfrsiz - usb->tx_count[i];
 	if(remain > 0)
 	{
 		if(size > remain)
@@ -632,6 +629,14 @@ static void atlantronic_usb_write_fifo(struct atlantronic_usb_state *usb, hwaddr
 	}
 
 	usb->tx_count[i] += size;
+
+	if(xfrsiz <= usb->tx_count[i])
+	{
+		usb->tx_count[i] = 0;
+		usb->dineps[i].DIEPINT |= 0x01; // xfrc
+		usb->gregs.GINTSTS |= 0x40000;   // IT in EP (inepint)
+		qemu_set_irq(usb->irq, 1);
+	}
 }
 
 static void atlantronic_usb_write(void *opaque, hwaddr offset, uint64_t val, unsigned size)
