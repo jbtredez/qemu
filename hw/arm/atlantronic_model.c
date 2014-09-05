@@ -14,7 +14,7 @@
 #include "kernel/robot_parameters.h"
 #include "kernel/rcc.h"
 #define LINUX
-#include "discovery/gpio.h"
+#include "discovery/bsp.h"
 #undef LINUX
 
 #define MODEL_DT           0.001f       //!< modele a 1ms

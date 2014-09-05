@@ -10,8 +10,6 @@
 #include "atlantronic_exti.h"
 #include "atlantronic_cpu.h"
 
-#define USB_OTG_FS_BASE_ADDR      0x50000000
-
 static void atlantronic_init(QEMUMachineInitArgs *args)
 {
 	configure_icount("0");
@@ -19,7 +17,7 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 
 	MemoryRegion *address_space_mem = get_system_memory();
 
-	const int flash_size = 1024;
+	const int flash_size = 2048;
 	const int sram_size = 192;
 	qemu_irq* pic = armv7m_init(address_space_mem, flash_size, sram_size, args->kernel_filename, "cortex-m4");
 
@@ -33,6 +31,7 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	DeviceState* gpiod = sysbus_create_simple("atlantronic-gpio", GPIOD_BASE, NULL);
 	DeviceState* gpioe = sysbus_create_simple("atlantronic-gpio", GPIOE_BASE, NULL);
 	DeviceState* gpiof = sysbus_create_simple("atlantronic-gpio", GPIOF_BASE, NULL);
+	DeviceState* gpiog = sysbus_create_simple("atlantronic-gpio", GPIOG_BASE, NULL);
 
 	// syscfg
 	DeviceState* syscfg = sysbus_create_simple("atlantronic-syscfg", SYSCFG_BASE, NULL);
@@ -42,6 +41,7 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	qdev_connect_gpio_out(gpiod, GPIO_IRQ_OUT_CHANGE_PIN, qdev_get_gpio_in(syscfg, SYSCFG_IRQ_IN_GPIOD));
 	qdev_connect_gpio_out(gpioe, GPIO_IRQ_OUT_CHANGE_PIN, qdev_get_gpio_in(syscfg, SYSCFG_IRQ_IN_GPIOE));
 	qdev_connect_gpio_out(gpiof, GPIO_IRQ_OUT_CHANGE_PIN, qdev_get_gpio_in(syscfg, SYSCFG_IRQ_IN_GPIOF));
+	qdev_connect_gpio_out(gpiog, GPIO_IRQ_OUT_CHANGE_PIN, qdev_get_gpio_in(syscfg, SYSCFG_IRQ_IN_GPIOG));
 
 	// exti
 	DeviceState* exti = sysbus_create_simple("atlantronic-exti", EXTI_BASE, NULL);
@@ -163,8 +163,8 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	qdev_connect_gpio_out(can1, ATLANTRONIC_CAN_IRQ_OUT_RX0, pic[CAN1_RX0_IRQn]);  // can1 -> it hw rx0
 
 	// usb
-	DeviceState* usb = sysbus_create_simple("atlantronic-usb", USB_OTG_FS_BASE_ADDR, NULL);
-	sysbus_connect_irq(SYS_BUS_DEVICE(usb), 0, pic[OTG_FS_IRQn]);
+	DeviceState* usb = sysbus_create_simple("atlantronic-usb", USB_OTG_HS_PERIPH_BASE, NULL);
+	sysbus_connect_irq(SYS_BUS_DEVICE(usb), 0, pic[OTG_HS_IRQn]);
 
 	// modele
 	DeviceState* model = sysbus_create_simple("atlantronic-model", 0, NULL);
