@@ -63,6 +63,12 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	sysbus_create_simple("atlantronic-tim", TIM6_BASE, NULL);
 	sysbus_create_simple("atlantronic-tim", TIM7_BASE, NULL);
 	sysbus_create_simple("atlantronic-tim", TIM8_BASE, NULL);
+	sysbus_create_simple("atlantronic-tim", TIM9_BASE, NULL);
+	sysbus_create_simple("atlantronic-tim", TIM10_BASE, NULL);
+	sysbus_create_simple("atlantronic-tim", TIM11_BASE, NULL);
+	sysbus_create_simple("atlantronic-tim", TIM12_BASE, NULL);
+	sysbus_create_simple("atlantronic-tim", TIM13_BASE, NULL);
+	sysbus_create_simple("atlantronic-tim", TIM14_BASE, NULL);
 
 	// dma
 	DeviceState* dma1 = sysbus_create_simple("atlantronic-dma", DMA1_BASE, NULL);
@@ -139,6 +145,7 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	qdev_connect_gpio_out(adc1, 0, qdev_get_gpio_in(dma2_stream4, 0));  // adc1 -> dma2_stream4
 
 	// usart
+	/*DeviceState* usart1 =*/ sysbus_create_simple("atlantronic-usart", USART1_BASE, NULL);
 	DeviceState* usart2 = sysbus_create_simple("atlantronic-usart", USART2_BASE, NULL);
 	DeviceState* usart3 = sysbus_create_simple("atlantronic-usart", USART3_BASE, NULL);
 	DeviceState* uart4 = sysbus_create_simple("atlantronic-usart", UART4_BASE, NULL);
@@ -226,7 +233,7 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 static QEMUMachine atlantronic_discovery =
 {
     .name = "atlantronic",
-    .desc = "Robot d'Atlantronic - carte discovery",
+    .desc = "Robot d'Atlantronic - carte disco",
     .init = atlantronic_init,
 };
 
