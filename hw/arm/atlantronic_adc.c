@@ -118,7 +118,7 @@ static void atlantronic_adc_timer_cb(void* arg)
 		}
 
 		num_conv -= 6;
-		sq = s->adc.SQR3;
+		sq = s->adc.SQR1;
 		for( i = 0; i < MIN(num_conv,4) ; i++)
 		{
 			int id = sq & 0x1f;

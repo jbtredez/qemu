@@ -192,23 +192,19 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_CAN1_MSG_DATA_L, qdev_get_gpio_in(can1, ATLANTRONIC_CAN_IRQ_IN_CAN1_MSG_DATA_L));
 	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_CAN1_MSG_DATA_H, qdev_get_gpio_in(can1, ATLANTRONIC_CAN_IRQ_IN_CAN1_MSG_DATA_H));
 
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_1, qdev_get_gpio_in(gpiod, 11));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_2, qdev_get_gpio_in(gpiob, 13));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_3, qdev_get_gpio_in(gpiob, 12));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_4, qdev_get_gpio_in(gpiod, 10));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_5, qdev_get_gpio_in(gpiod, 7));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_6, qdev_get_gpio_in(gpiob, 11));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_7, qdev_get_gpio_in(gpioc, 11));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_8, qdev_get_gpio_in(gpiod, 6));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_9, qdev_get_gpio_in(gpioc, 9));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_10, qdev_get_gpio_in(gpioc, 8));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_11, qdev_get_gpio_in(gpiob, 14));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_12, qdev_get_gpio_in(gpiob, 15));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_13, qdev_get_gpio_in(gpioe, 6));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_14, qdev_get_gpio_in(gpioe, 5));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_BTN1, qdev_get_gpio_in(gpioc, 14));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_BTN2, qdev_get_gpio_in(gpiob, 7));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_GO, qdev_get_gpio_in(gpiod, 3));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_0, qdev_get_gpio_in(gpioc, 15));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_1, qdev_get_gpio_in(gpioc, 13));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_2, qdev_get_gpio_in(gpioe, 3));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_3, qdev_get_gpio_in(gpioe, 4));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_4, qdev_get_gpio_in(gpiog, 10));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_5, qdev_get_gpio_in(gpiog, 11));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_6, qdev_get_gpio_in(gpiod, 4));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_7, qdev_get_gpio_in(gpiod, 7));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_8, qdev_get_gpio_in(gpiod, 3));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_9, qdev_get_gpio_in(gpiod, 2));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_10, qdev_get_gpio_in(gpiog, 7));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_11, qdev_get_gpio_in(gpiog, 6));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_GO, qdev_get_gpio_in(gpioc, 14));
 #if 0
 	qdev_connect_gpio_out(tim2, 0, qdev_get_gpio_in(model, 0)); // encodeur 1 (droite)
 	qdev_connect_gpio_out(tim4, 0, qdev_get_gpio_in(model, 1)); // encodeur 2 (gauche)

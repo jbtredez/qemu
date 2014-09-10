@@ -11,10 +11,11 @@
 #include "atlantronic_hokuyo.h"
 #include "atlantronic_can.h"
 
+#define __disco__
 #include "kernel/robot_parameters.h"
 #include "kernel/rcc.h"
 #define LINUX
-#include "discovery/bsp.h"
+#include "kernel/driver/io.h"
 #undef LINUX
 
 #define MODEL_DT           0.001f       //!< modele a 1ms
@@ -488,6 +489,7 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 			break;
 		case EVENT_SET_IO:
 			{
+				if(event->data32[0] & GPIO_IN_0) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_0], event->data32[1]);
 				if(event->data32[0] & GPIO_IN_1) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_1], event->data32[1]);
 				if(event->data32[0] & GPIO_IN_2) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_2], event->data32[1]);
 				if(event->data32[0] & GPIO_IN_3) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_3], event->data32[1]);
@@ -499,11 +501,6 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 				if(event->data32[0] & GPIO_IN_9) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_9], event->data32[1]);
 				if(event->data32[0] & GPIO_IN_10) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_10], event->data32[1]);
 				if(event->data32[0] & GPIO_IN_11) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_11], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_12) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_12], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_13) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_13], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_14) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_14], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_BTN1) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_BTN1], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_BTN2) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_BTN2], event->data32[1]);
 				if(event->data32[0] & GPIO_IN_GO) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_GO], event->data32[1]);
 			}
 			break;
