@@ -188,7 +188,7 @@ static int atlantronic_adc_init(SysBusDevice * dev)
 	timer_mod(s->timer, s->timer_count);
 
 	// TODO hack vBat a 24V
-	s->an[15] = 24 * 4096/39;
+	s->an[8] = 24 * 4096/39;
 
 	return 0;
 }
