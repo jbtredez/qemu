@@ -162,7 +162,7 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	qdev_connect_gpio_out(uart4, 1, qdev_get_gpio_in(dma1_stream2, 0));  // uart4 -> dma1_stream2 (rx)
 	qdev_connect_gpio_out(uart5, 0, pic[UART5_IRQn]);  // uart5 -> it hw
 	qdev_connect_gpio_out(uart5, 1, qdev_get_gpio_in(dma1_stream0, 0));  // uart5 -> dma1_stream0 (rx)
-	//qemu_set_irq(qdev_get_gpio_in(uart4, 1), 1);
+	qemu_set_irq(qdev_get_gpio_in(uart4, 1), 1);
 	//qdev_connect_gpio_out(usart6, 0, pic[USART6_IRQn]);  // usart6 -> it hw
 	//qdev_connect_gpio_out(usart6, 1, qdev_get_gpio_in(dma2_stream1, 0));  // usart6 -> dma2_stream1 (rx)
 
