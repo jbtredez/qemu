@@ -150,7 +150,7 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	DeviceState* usart3 = sysbus_create_simple("atlantronic-usart", USART3_BASE, NULL);
 	DeviceState* uart4 = sysbus_create_simple("atlantronic-usart", UART4_BASE, NULL);
 	DeviceState* uart5 = sysbus_create_simple("atlantronic-usart", UART5_BASE, NULL);
-	/*DeviceState* usart6 =*/ sysbus_create_simple("atlantronic-usart", USART6_BASE, NULL);
+	DeviceState* usart6 = sysbus_create_simple("atlantronic-usart", USART6_BASE, NULL);
 
 	qdev_connect_gpio_out(usart1, 0, pic[USART1_IRQn]);  // usart2 -> it hw
 	qdev_connect_gpio_out(usart1, 1, qdev_get_gpio_in(dma2_stream2, 0));  // usart1 -> dma2_stream2 (rx)
@@ -163,8 +163,8 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	qdev_connect_gpio_out(uart5, 0, pic[UART5_IRQn]);  // uart5 -> it hw
 	qdev_connect_gpio_out(uart5, 1, qdev_get_gpio_in(dma1_stream0, 0));  // uart5 -> dma1_stream0 (rx)
 	qemu_set_irq(qdev_get_gpio_in(uart4, 1), 1);
-	//qdev_connect_gpio_out(usart6, 0, pic[USART6_IRQn]);  // usart6 -> it hw
-	//qdev_connect_gpio_out(usart6, 1, qdev_get_gpio_in(dma2_stream1, 0));  // usart6 -> dma2_stream1 (rx)
+	qdev_connect_gpio_out(usart6, 0, pic[USART6_IRQn]);  // usart6 -> it hw
+	qdev_connect_gpio_out(usart6, 1, qdev_get_gpio_in(dma2_stream1, 0));  // usart6 -> dma2_stream1 (rx)
 
 	// can
 	DeviceState* can1 = sysbus_create_simple("atlantronic-can", CAN1_BASE, NULL);
