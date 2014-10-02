@@ -217,9 +217,9 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 {
 	int i = 0;
 
-	s->pos_robot.x = 0;
-	s->pos_robot.y = 700;
-	s->pos_robot.theta = - M_PI / 2;
+	s->pos_robot.x = -1300;
+	s->pos_robot.y = 0;
+	s->pos_robot.theta = 0;
 
 	s->npSpeed.x = 0;
 	s->npSpeed.y = 0;
