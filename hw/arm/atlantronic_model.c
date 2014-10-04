@@ -512,73 +512,13 @@ static void atlantronic_model_event(void *opaque, int event)
 
 }
 
-static struct atlantronic_vect3 odometry2turret(const struct atlantronic_vect3* cp, const struct atlantronic_vect3* A, const struct atlantronic_vect3* B, const struct atlantronic_vect3* v1, const struct atlantronic_vect3* v2, float* slippageSpeed)
-{
-	struct atlantronic_vect3 res = {0, 0, 0};
-
-	float dx = B->x - A->x;
-	float dy = B->y - A->y;
-	float dv = 0;
-
-	// on divise par le plus grand pour eviter les pb numeriques
-	if( fabsf(dx) > fabsf(dy) )
-	{
-		res.theta = (v2->y - v1->y) / dx;
-		dv = fabsf(v1->x - v2->x - dy * res.theta);
-	}
-	else if( fabsf(dy) > 0 )
-	{
-		res.theta = (v1->x - v2->x) / dy;
-		dv = fabsf(v2->y - v1->y - dx * res.theta);
-	}
-	else
-	{
-		// calcul non realisable, A et B sont au même endroit
-		// on retourne une vitesse nulle
-		goto end;
-	}
-
-	res.x = 0.5 * (v1->x + v2->x + res.theta * (A->y + B->y - 2 * cp->y));
-	res.y = 0.5 * (v1->y + v2->y + res.theta * ( 2 * cp->x - A->x - B->x));
-
-end:
-	if( slippageSpeed )
-	{
-		*slippageSpeed = dv;
-	}
-
-	return res;
-}
-
 static void atlantronic_model_update_odometry(struct atlantronic_model_state *s, float dt)
 {
-	struct atlantronic_vect3 turret[3] =
-	{
-		{   0,  155, 0},
-		{   0, -155, 0},
-		{-175,    0, 0}
-	};
+	#define VOIE_INVERSE             0.005
 
-	int i = 0;
-	struct atlantronic_vect3 cp = {0,0,0};
-	struct atlantronic_vect3 v[3];
-
-	for(i = 0; i < 3; i++)
-	{
-		v[i].theta = s->can_motor[2*i+1].pos;
-		float speed = s->can_motor[2*i].v - steering_coupling[i] * s->can_motor[2*i+1].v;
-		v[i].x = speed * cosf(v[i].theta);
-		v[i].y = speed * sinf(v[i].theta);
-	}
-
-	struct atlantronic_vect3 npSpeed1 = odometry2turret(&cp, &turret[0], &turret[1], &v[0], &v[1], NULL);
-	struct atlantronic_vect3 npSpeed2 = odometry2turret(&cp, &turret[1], &turret[2], &v[1], &v[2], NULL);
-	struct atlantronic_vect3 npSpeed3 = odometry2turret(&cp, &turret[0], &turret[2], &v[0], &v[2], NULL);
-
-	s->npSpeed.x = (npSpeed1.x + npSpeed2.x + npSpeed3.x) / 3;
-	s->npSpeed.y = (npSpeed1.y + npSpeed2.y + npSpeed3.y) / 3;
-	s->npSpeed.theta = (npSpeed1.theta + npSpeed2.theta + npSpeed3.theta) / 3;
-
+	s->npSpeed.x = 0.5 * (s->can_motor[0].v + s->can_motor[2].v);
+	s->npSpeed.y = 0;
+	s->npSpeed.theta = (s->can_motor[2].v - s->can_motor[0].v) * VOIE_INVERSE;
 	struct atlantronic_vect3 npSpeedAbs = atlantronic_vect3_loc_to_abs_speed(s->pos_robot.theta, &s->npSpeed);
 
 	s->pos_robot.x += npSpeedAbs.x * dt;
