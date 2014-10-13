@@ -445,6 +445,9 @@ static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 				atlantronic_hokuyo_in_recv_usart(&s->hokuyo[index], level&0xff);
 			}
 			break;
+		case MODEL_IRQ_IN_LCD:
+			// TODO si pin CS lcd ... decoder trame lcd
+			break;
 	}
 }
 
