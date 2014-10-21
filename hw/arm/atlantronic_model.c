@@ -446,7 +446,7 @@ static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 			}
 			break;
 		case MODEL_IRQ_IN_LCD:
-			// TODO si pin CS lcd ... decoder trame lcd
+			// TODO decoder trame lcd + envoi ihm
 			break;
 	}
 }

@@ -8,6 +8,7 @@
 #include "atlantronic_gpio.h"
 #include "atlantronic_syscfg.h"
 #include "atlantronic_exti.h"
+#include "atlantronic_spi.h"
 #include "atlantronic_cpu.h"
 
 static void atlantronic_init(QEMUMachineInitArgs *args)
@@ -15,11 +16,17 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	configure_icount("0");
 	system_clock_scale = 1;
 
-	MemoryRegion *address_space_mem = get_system_memory();
+	MemoryRegion* address_space_mem = get_system_memory();
+	MemoryRegion* ext_ram = g_new(MemoryRegion, 1);
 
 	const int flash_size = 2048;
 	const int sram_size = 192;
+	const int ext_ram_size = 64*1024*1024;
 	qemu_irq* pic = armv7m_init(address_space_mem, flash_size, sram_size, args->kernel_filename, "cortex-m4");
+
+	// ajout ram externe
+	memory_region_init_ram(ext_ram, NULL, "ext_ram", ext_ram_size);
+	memory_region_add_subregion(address_space_mem, 0xD0000000, ext_ram);
 
 	// rcc
 	sysbus_create_simple("atlantronic-rcc", RCC_BASE, NULL);
@@ -168,13 +175,16 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 
 	// spi
 	DeviceState* spi5 = sysbus_create_simple("atlantronic-spi", SPI5_BASE, NULL);
-	qdev_connect_gpio_out(spi5, 0, pic[SPI5_IRQn]);  // spi5 -> it hw
-	qdev_connect_gpio_out(spi5, 1, qdev_get_gpio_in(dma2_stream2, 0));  // spi5 -> dma2_stream3 (rx)
+	qdev_connect_gpio_out(spi5, SPI_IRQ_OUT_HW, pic[SPI5_IRQn]);  // spi5 -> it hw
+	qdev_connect_gpio_out(spi5, SPI_IRQ_OUT_DMAR, qdev_get_gpio_in(dma2_stream2, 0));  // spi5 -> dma2_stream3 (rx)
+	qdev_connect_gpio_out(gpioc, 1, qdev_get_gpio_in(spi5, SPI_IRQ_IN_CS0));
+	qdev_connect_gpio_out(gpioc, 2, qdev_get_gpio_in(spi5, SPI_IRQ_IN_CS1));
+	qdev_connect_gpio_out(gpiof, 10, qdev_get_gpio_in(spi5, SPI_IRQ_IN_CS2));
 
 	// can
 	DeviceState* can1 = sysbus_create_simple("atlantronic-can", CAN1_BASE, NULL);
-	qdev_connect_gpio_out(can1, ATLANTRONIC_CAN_IRQ_OUT_TX0, pic[CAN1_TX_IRQn]);  // can1 -> it hw tx
-	qdev_connect_gpio_out(can1, ATLANTRONIC_CAN_IRQ_OUT_RX0, pic[CAN1_RX0_IRQn]);  // can1 -> it hw rx0
+	qdev_connect_gpio_out(can1, CAN_IRQ_OUT_TX0, pic[CAN1_TX_IRQn]);  // can1 -> it hw tx
+	qdev_connect_gpio_out(can1, CAN_IRQ_OUT_RX0, pic[CAN1_RX0_IRQn]);  // can1 -> it hw rx0
 
 	// usb
 	DeviceState* usb = sysbus_create_simple("atlantronic-usb", USB_OTG_HS_PERIPH_BASE, NULL);
@@ -190,15 +200,15 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_USART_HOKUYO1, qdev_get_gpio_in(usart3, 0));
 	qdev_connect_gpio_out(usart1, 3, qdev_get_gpio_in(model, MODEL_IRQ_IN_USART_HOKUYO2));
 	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_USART_HOKUYO2, qdev_get_gpio_in(usart1, 0));
-	qdev_connect_gpio_out(spi5, 3, qdev_get_gpio_in(model, MODEL_IRQ_IN_LCD));
-	qdev_connect_gpio_out(can1, ATLANTRONIC_CAN_IRQ_OUT_CAN1_MSG_ID, qdev_get_gpio_in(model, MODEL_IRQ_IN_CAN1_MSG_ID));
-	qdev_connect_gpio_out(can1, ATLANTRONIC_CAN_IRQ_OUT_CAN1_MSG_SIZE, qdev_get_gpio_in(model, MODEL_IRQ_IN_CAN1_MSG_SIZE));
-	qdev_connect_gpio_out(can1, ATLANTRONIC_CAN_IRQ_OUT_CAN1_MSG_DATA_L, qdev_get_gpio_in(model, MODEL_IRQ_IN_CAN1_MSG_DATA_L));
-	qdev_connect_gpio_out(can1, ATLANTRONIC_CAN_IRQ_OUT_CAN1_MSG_DATA_H, qdev_get_gpio_in(model, MODEL_IRQ_IN_CAN1_MSG_DATA_H));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_CAN1_MSG_ID, qdev_get_gpio_in(can1, ATLANTRONIC_CAN_IRQ_IN_CAN1_MSG_ID));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_CAN1_MSG_SIZE, qdev_get_gpio_in(can1, ATLANTRONIC_CAN_IRQ_IN_CAN1_MSG_SIZE));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_CAN1_MSG_DATA_L, qdev_get_gpio_in(can1, ATLANTRONIC_CAN_IRQ_IN_CAN1_MSG_DATA_L));
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_CAN1_MSG_DATA_H, qdev_get_gpio_in(can1, ATLANTRONIC_CAN_IRQ_IN_CAN1_MSG_DATA_H));
+	qdev_connect_gpio_out(spi5, SPI_IRQ_OUT_DEVICE1_RX, qdev_get_gpio_in(model, MODEL_IRQ_IN_LCD));
+	qdev_connect_gpio_out(can1, CAN_IRQ_OUT_CAN1_MSG_ID, qdev_get_gpio_in(model, MODEL_IRQ_IN_CAN1_MSG_ID));
+	qdev_connect_gpio_out(can1, CAN_IRQ_OUT_CAN1_MSG_SIZE, qdev_get_gpio_in(model, MODEL_IRQ_IN_CAN1_MSG_SIZE));
+	qdev_connect_gpio_out(can1, CAN_IRQ_OUT_CAN1_MSG_DATA_L, qdev_get_gpio_in(model, MODEL_IRQ_IN_CAN1_MSG_DATA_L));
+	qdev_connect_gpio_out(can1, CAN_IRQ_OUT_CAN1_MSG_DATA_H, qdev_get_gpio_in(model, MODEL_IRQ_IN_CAN1_MSG_DATA_H));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_CAN1_MSG_ID, qdev_get_gpio_in(can1, CAN_IRQ_IN_CAN1_MSG_ID));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_CAN1_MSG_SIZE, qdev_get_gpio_in(can1, CAN_IRQ_IN_CAN1_MSG_SIZE));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_CAN1_MSG_DATA_L, qdev_get_gpio_in(can1, CAN_IRQ_IN_CAN1_MSG_DATA_L));
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_CAN1_MSG_DATA_H, qdev_get_gpio_in(can1, CAN_IRQ_IN_CAN1_MSG_DATA_H));
 
 	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_0, qdev_get_gpio_in(gpioc, 15));
 	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_1, qdev_get_gpio_in(gpioc, 13));

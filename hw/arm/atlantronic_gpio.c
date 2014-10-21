@@ -20,11 +20,27 @@ struct atlantronic_gpio_state
 	qemu_irq irq[GPIO_IRQ_OUT_NUM];
 };
 
+static void atlantronic_gpio_update(struct atlantronic_gpio_state* s, uint32_t val)
+{
+	int i = 0;
+
+	val &= 0xFFFF;
+	uint32_t diff = s->gpio.ODR ^ val;
+	s->gpio.ODR = val;
+	for( i = 0; i < PIN_NUM; i++)
+	{
+		int mode = (s->gpio.MODER >> (2 * i)) & 0x03;
+
+		if( mode != GPIO_MODE_IN && ((diff >> i) & 0x01))
+		{
+			qemu_set_irq(s->irq[i], (val >> i) & 0x01);
+		}
+	}
+}
+
 static void atlantronic_gpio_write(void *opaque, hwaddr offset, uint64_t val, unsigned size)
 {
 	struct atlantronic_gpio_state* s = opaque;
-	int32_t diff = 0;
-	int i = 0;
 
 	switch(offset)
 	{
@@ -36,26 +52,17 @@ static void atlantronic_gpio_write(void *opaque, hwaddr offset, uint64_t val, un
 			printf("Error : GPIO forbiden write acces IDR (offset %lx), val %lx\n", offset, val);
 			break;
 		case offsetof(GPIO_TypeDef, ODR):
-			val &= 0xFFFF;
-			diff = s->gpio.ODR ^ val;
-			s->gpio.ODR = val;
-			for( i = 0; i < PIN_NUM; i++)
-			{
-				int mode = (s->gpio.MODER >> (2 * i)) & 0x03;
-
-				if( mode != GPIO_MODE_IN && ((diff >> i) & 0x01))
-				{
-					qemu_set_irq(s->irq[i], (val >> i) & 0x01);
-				}
-			}
+			atlantronic_gpio_update(s, val);
 			break;
 		case offsetof(GPIO_TypeDef, BSRRL):
 			// atomic bit set
-			s->gpio.ODR |= val & 0xff;
+			val = s->gpio.ODR | (val & 0xff);
+			atlantronic_gpio_update(s, val);
 			break;
 		case offsetof(GPIO_TypeDef, BSRRH):
 			// atomic bit reset
-			s->gpio.ODR &= ~(val & 0xff);
+			val = s->gpio.ODR & (~(val & 0xff));
+			atlantronic_gpio_update(s, val);
 			break;
 		W_ACCESS(GPIO_TypeDef, s->gpio, LCKR, val);
 		W_ACCESS(GPIO_TypeDef, s->gpio, AFR[0], val);
