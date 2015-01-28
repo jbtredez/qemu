@@ -1,10 +1,8 @@
-#ifndef ATLANTRONIC_CAN_MOTOR_H
-#define ATLANTRONIC_CAN_MOTOR_H
+#ifndef ATLANTRONIC_CAN_MOTOR_FAULHABER_H
+#define ATLANTRONIC_CAN_MOTOR_FAULHABER_H
 
 #include <stdint.h>
 #include "atlantronic_canopen.h"
-
-#define MOTOR_ENCODER_RESOLUTION         3000
 
 enum
 {
@@ -12,7 +10,7 @@ enum
 	MOTOR_CMD_POSITION,
 };
 
-struct atlantronic_can_motor
+struct atlantronic_can_faulhaber_motor
 {
 	struct canopen_node node;
 	uint32_t statusWord;   //!< status word
@@ -28,10 +26,10 @@ struct atlantronic_can_motor
 	float outputGain;  //!< gain sur la sortie pour avoir la position et la vitesse en unités utilisables (rd/s ou mm/s)
 };
 
-void atlantronic_can_motor_init(struct atlantronic_can_motor* s, float outputGain, float offset);
+void atlantronic_can_motor_faulhaber_init(struct atlantronic_can_faulhaber_motor* s, float outputGain, float offset);
 
-void atlantronic_can_motor_callback(struct atlantronic_canopen* canopen, struct canopen_node* node, struct can_msg msg, int type);
+void atlantronic_can_motor_faulhaber_callback(struct atlantronic_canopen* canopen, struct canopen_node* node, struct can_msg msg, int type);
 
-void atlantronic_can_motor_update(struct atlantronic_can_motor* s, float dt);
+void atlantronic_can_motor_faulhaber_update(struct atlantronic_can_faulhaber_motor* s, float dt);
 
 #endif

@@ -2,6 +2,7 @@
 #define ATLANTRONIC_CAN_H
 
 #include <stdint.h>
+#include "hw/irq.h"
 
 enum
 {
@@ -39,5 +40,15 @@ struct can_msg
 	unsigned char format; //!< format (standard ou étendu)
 	unsigned char type; //!< type
 } __attribute__((packed));
+
+struct atlantronic_can_bus
+{
+	qemu_irq* irq_id;
+	qemu_irq* irq_size;
+	qemu_irq* irq_data_l;
+	qemu_irq* irq_data_h;
+};
+
+void atlantronic_can_write_bus(struct atlantronic_can_bus* s, struct can_msg msg);
 
 #endif

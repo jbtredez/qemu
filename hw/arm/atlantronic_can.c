@@ -385,3 +385,13 @@ static void atlantronic_can_register_types(void)
 }
 
 type_init(atlantronic_can_register_types);
+
+
+void atlantronic_can_write_bus(struct atlantronic_can_bus* s, struct can_msg msg)
+{
+        qemu_set_irq(*s->irq_data_l, msg._data.low);
+        qemu_set_irq(*s->irq_data_h, msg._data.high);
+        qemu_set_irq(*s->irq_size, msg.size);
+        qemu_set_irq(*s->irq_id, msg.id); // envoi de l'id en dernier, indique la fin du message
+}
+

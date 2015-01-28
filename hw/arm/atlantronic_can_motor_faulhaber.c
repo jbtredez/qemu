@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "atlantronic_can_motor.h"
+#include "atlantronic_can_motor_faulhaber.h"
 #include "qemu/osdep.h"
 
 #define CAN_MOTOR_CMD_DI       0x08    //!< disable
@@ -18,7 +18,9 @@
 #define CAN_MOTOR_CMD_SHN      0x9a    //!< notification (via status word) lors de la detection du switch (homing) // TODO dans la conf sdo sur 0x2310:4 ?
 #define CAN_MOTOR_CMD_LA       0xb4    //!< commande de position
 
-void atlantronic_can_motor_init(struct atlantronic_can_motor* s, float outputGain, float offset)
+#define MOTOR_ENCODER_RESOLUTION         3000
+
+void atlantronic_can_motor_faulhaber_init(struct atlantronic_can_faulhaber_motor* s, float outputGain, float offset)
 {
 	s->statusWord = 0;
 	s->raw_pos = 0;
@@ -30,7 +32,7 @@ void atlantronic_can_motor_init(struct atlantronic_can_motor* s, float outputGai
 	s->positionOffset = offset;
 }
 
-void atlantronic_can_motor_update(struct atlantronic_can_motor* motor, float dt)
+void atlantronic_can_motor_faulhaber_update(struct atlantronic_can_faulhaber_motor* motor, float dt)
 {
 	if( motor->kinematicsMode == MOTOR_CMD_SPEED )
 	{
@@ -63,7 +65,7 @@ void atlantronic_can_motor_update(struct atlantronic_can_motor* motor, float dt)
 	motor->v = motor->outputGain * motor->raw_v;
 }
 
-static void atlantronic_can_motor_send_pdo1(struct atlantronic_can_motor* motor, struct atlantronic_canopen* canopen)
+static void atlantronic_can_motor_faulhaber_send_pdo1(struct atlantronic_can_faulhaber_motor* motor, struct atlantronic_canopen* canopen)
 {
 	struct can_msg rx_msg;
 
@@ -74,9 +76,9 @@ static void atlantronic_can_motor_send_pdo1(struct atlantronic_can_motor* motor,
 	atlantronic_canopen_write_bus(canopen, rx_msg);
 }
 
-void atlantronic_can_motor_callback(struct atlantronic_canopen* canopen, struct canopen_node* node, struct can_msg msg, int type)
+void atlantronic_can_motor_faulhaber_callback(struct atlantronic_canopen* canopen, struct canopen_node* node, struct can_msg msg, int type)
 {
-	struct atlantronic_can_motor* motor = container_of(node, struct atlantronic_can_motor, node);
+	struct atlantronic_can_faulhaber_motor* motor = container_of(node, struct atlantronic_can_faulhaber_motor, node);
 	struct can_msg rx_msg;
 	uint32_t pos_int;
 
@@ -87,7 +89,7 @@ void atlantronic_can_motor_callback(struct atlantronic_canopen* canopen, struct 
 			{
 				// on passe en "switch on disable"
 				motor->statusWord = 0x60;
-				atlantronic_can_motor_send_pdo1(motor, canopen);
+				atlantronic_can_motor_faulhaber_send_pdo1(motor, canopen);
 			}
 			break;
 		case CANOPEN_SYNC:
@@ -112,12 +114,12 @@ void atlantronic_can_motor_callback(struct atlantronic_canopen* canopen, struct 
 					// enable
 					// on passe en "op enable"
 					motor->statusWord = 0x27;
-					atlantronic_can_motor_send_pdo1(motor, canopen);
+					atlantronic_can_motor_faulhaber_send_pdo1(motor, canopen);
 					break;
 				case CAN_MOTOR_CMD_DI:
 					// on passe en "switch on disable"
 					motor->statusWord = 0x60;
-					atlantronic_can_motor_send_pdo1(motor, canopen);
+					atlantronic_can_motor_faulhaber_send_pdo1(motor, canopen);
 					motor->kinematicsMode = MOTOR_CMD_SPEED;
 					motor->speedCmd = 0;
 					break;
@@ -131,7 +133,7 @@ void atlantronic_can_motor_callback(struct atlantronic_canopen* canopen, struct 
 					break;
 				case CAN_MOTOR_CMD_GOHOSEQ:
 					motor->statusWord |= (1 << 14);
-					atlantronic_can_motor_send_pdo1(motor, canopen);
+					atlantronic_can_motor_faulhaber_send_pdo1(motor, canopen);
 					break;
 			}
 			break;

@@ -5,8 +5,7 @@
 #include "atlantronic_cpu.h"
 #include "atlantronic_model.h"
 #include "atlantronic_tools.h"
-#include "atlantronic_can_motor.h"
-#include "atlantronic_canopen.h"
+#include "atlantronic_can_motor_mip.h"
 #include "atlantronic_dynamixel.h"
 #include "atlantronic_hokuyo.h"
 #include "atlantronic_can.h"
@@ -23,7 +22,7 @@
 
 #define PWM_NUM            4
 #define ENCODER_NUM        3
-#define CAN_MOTOR_NUM      6
+#define CAN_MOTOR_NUM      2
 #define AX12_NUM           8
 #define RX24_NUM           6
 #define HOKUYO_NUM         2
@@ -42,8 +41,6 @@ enum
 	EVENT_MANAGE_CANOPEN_NODE_CONNECT,
 	EVENT_MANAGE_CANOPEN_NODE_DISCONNECT,
 };
-
-static const float steering_coupling[3] = { DRIVING1_WHEEL_RADIUS, DRIVING2_WHEEL_RADIUS, DRIVING3_WHEEL_RADIUS};
 
 struct atlantronic_model_rx_event
 {
@@ -88,9 +85,9 @@ struct atlantronic_model_state
 	QEMUTimer* timer;
 	uint64_t timer_count;
 	float encoder[ENCODER_NUM];
+	struct atlantronic_can_bus can;
 	struct can_msg can_msg;
-	struct atlantronic_canopen canopen;
-	struct atlantronic_can_motor can_motor[CAN_MOTOR_NUM];
+	struct atlantronic_can_motor_mip can_motor[CAN_MOTOR_NUM];
 	int pwm_dir[PWM_NUM];
 	struct atlantronic_motor motor[PWM_NUM];
 
@@ -225,8 +222,10 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	s->npSpeed.y = 0;
 	s->npSpeed.theta = 0;
 
-	atlantronic_canopen_init(&s->canopen, &s->irq[MODEL_IRQ_OUT_CAN1_MSG_ID], &s->irq[MODEL_IRQ_OUT_CAN1_MSG_SIZE],
-			&s->irq[MODEL_IRQ_OUT_CAN1_MSG_DATA_L], &s->irq[MODEL_IRQ_OUT_CAN1_MSG_DATA_H]);
+	s->can.irq_id = &s->irq[MODEL_IRQ_OUT_CAN1_MSG_ID];
+	s->can.irq_size = &s->irq[MODEL_IRQ_OUT_CAN1_MSG_SIZE];
+	s->can.irq_data_h = &s->irq[MODEL_IRQ_OUT_CAN1_MSG_DATA_H];
+	s->can.irq_data_l = &s->irq[MODEL_IRQ_OUT_CAN1_MSG_DATA_L];
 
 	for(i = 0; i < AX12_NUM; i++)
 	{
@@ -262,29 +261,11 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 		atlantronic_motor_init(&s->motor[i]);
 	}
 
-	float outputGain = 2 * M_PI * DRIVING1_WHEEL_RADIUS / (float)(MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING1_RED);
-	atlantronic_can_motor_init(&s->can_motor[0], outputGain, 0);
-	atlantronic_canopen_register_node(&s->canopen, 0x31, &s->can_motor[0].node, atlantronic_can_motor_callback);
+	float outputGain = 2 * M_PI * DRIVING1_WHEEL_RADIUS / (float)(MIP_MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING1_RED);
+	atlantronic_can_motor_mip_init(&s->can_motor[0], 1, outputGain, 0, &s->can);
 
-	outputGain = 2 * M_PI / (float)(MOTOR_STEERING1_RED * MOTOR_ENCODER_RESOLUTION);
-	atlantronic_can_motor_init(&s->can_motor[1], outputGain, MOTOR_STEERING1_OFFSET);
-	atlantronic_canopen_register_node(&s->canopen, 0x21, &s->can_motor[1].node, atlantronic_can_motor_callback);
-
-	outputGain = 2 * M_PI * DRIVING2_WHEEL_RADIUS / (float)(MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING2_RED);
-	atlantronic_can_motor_init(&s->can_motor[2], outputGain, 0);
-	atlantronic_canopen_register_node(&s->canopen, 0x32, &s->can_motor[2].node, atlantronic_can_motor_callback);
-
-	outputGain = 2 * M_PI / (float)(MOTOR_STEERING2_RED * MOTOR_ENCODER_RESOLUTION);
-	atlantronic_can_motor_init(&s->can_motor[3], outputGain, MOTOR_STEERING2_OFFSET);
-	atlantronic_canopen_register_node(&s->canopen, 0x22, &s->can_motor[3].node, atlantronic_can_motor_callback);
-
-	outputGain = 2 * M_PI * DRIVING3_WHEEL_RADIUS / (float)(MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING3_RED);
-	atlantronic_can_motor_init(&s->can_motor[4], outputGain, 0);
-	atlantronic_canopen_register_node(&s->canopen, 0x33, &s->can_motor[4].node, atlantronic_can_motor_callback);
-
-	outputGain = 2 * M_PI / (float)(MOTOR_STEERING3_RED * MOTOR_ENCODER_RESOLUTION);
-	atlantronic_can_motor_init(&s->can_motor[5], outputGain, MOTOR_STEERING3_OFFSET);
-	atlantronic_canopen_register_node(&s->canopen, 0x23, &s->can_motor[5].node, atlantronic_can_motor_callback);
+	outputGain = 2 * M_PI * DRIVING2_WHEEL_RADIUS / (float)(MIP_MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING2_RED);
+	atlantronic_can_motor_mip_init(&s->can_motor[1], 2, outputGain, 0, &s->can);
 }
 
 #if 0
@@ -379,7 +360,10 @@ static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 	{
 		case MODEL_IRQ_IN_CAN1_MSG_ID:
 			s->can_msg.id = level;
-			atlantronic_canopen_tx(&s->canopen, s->can_msg);
+			for(i = 0; i < CAN_MOTOR_NUM; i++)
+			{
+				atlantronic_can_motor_mip_rx(&s->can_motor[i], s->can_msg);
+			}
 			break;
 		case MODEL_IRQ_IN_CAN1_MSG_SIZE:
 			s->can_msg.size = level;
@@ -488,7 +472,7 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 			atlantronic_move_object(event->data[0], *((struct atlantronic_vect2*)&event->data[1]), *((struct atlantronic_vect3*)&event->data[1+sizeof(struct atlantronic_vect2)]));
 			break;
 		case EVENT_MANAGE_CANOPEN_NODE:
-			atlantronic_canopen_manage_node_connextion(&model->canopen, event->data32[0], event->data32[1] == EVENT_MANAGE_CANOPEN_NODE_CONNECT ? 1 : 0);
+//			atlantronic_canopen_manage_node_connextion(&model->canopen, event->data32[0], event->data32[1] == EVENT_MANAGE_CANOPEN_NODE_CONNECT ? 1 : 0);
 			break;
 		case EVENT_SET_IO:
 			{
@@ -519,9 +503,9 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 {
 	#define VOIE_INVERSE             0.005
 
-	s->npSpeed.x = 0.5 * (s->can_motor[0].v + s->can_motor[2].v);
+	s->npSpeed.x = 0.5 * (s->can_motor[0].v + s->can_motor[1].v);
 	s->npSpeed.y = 0;
-	s->npSpeed.theta = (s->can_motor[2].v - s->can_motor[0].v) * VOIE_INVERSE;
+	s->npSpeed.theta = (s->can_motor[1].v - s->can_motor[0].v) * VOIE_INVERSE;
 	struct atlantronic_vect3 npSpeedAbs = atlantronic_vect3_loc_to_abs_speed(s->pos_robot.theta, &s->npSpeed);
 
 	s->pos_robot.x += npSpeedAbs.x * dt;
@@ -541,7 +525,7 @@ static void atlantronic_model_timer_cb(void* arg)
 	// mise a jour des moteurs
 	for(i = 0; i < CAN_MOTOR_NUM; i++)
 	{
-		atlantronic_can_motor_update(&s->can_motor[i], dt);
+		atlantronic_can_motor_mip_update(&s->can_motor[i], dt);
 	}
 
 	// mise a jour des dynamixels
