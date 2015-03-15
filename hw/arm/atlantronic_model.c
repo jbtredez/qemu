@@ -238,12 +238,12 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	}
 
 	struct atlantronic_vect3 pos_hokuyo[HOKUYO_NUM];
-	pos_hokuyo[0].x = -51;
+	pos_hokuyo[0].x = 0;
 	pos_hokuyo[0].y = 0;
 	pos_hokuyo[0].theta = 0;
-	pos_hokuyo[1].x = -154;
+	pos_hokuyo[1].x = 0;
 	pos_hokuyo[1].y = 0;
-	pos_hokuyo[1].theta = M_PI;
+	pos_hokuyo[1].theta = 0;
 	for(i = 0; i < HOKUYO_NUM; i++)
 	{
 		atlantronic_hokuyo_init(&s->hokuyo[i], &s->irq[MODEL_IRQ_OUT_USART_HOKUYO1+i], pos_hokuyo[i]);
