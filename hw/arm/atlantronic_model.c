@@ -476,19 +476,19 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 			break;
 		case EVENT_SET_IO:
 			{
-				if(event->data32[0] & GPIO_IN_0) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_0], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_1) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_1], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_2) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_2], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_3) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_3], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_4) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_4], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_5) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_5], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_6) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_6], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_7) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_7], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_8) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_8], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_9) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_9], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_10) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_10], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_11) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_11], event->data32[1]);
-				if(event->data32[0] & GPIO_IN_GO) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_GO], event->data32[1]);
+				if(event->data32[0] & GPIO_MASK_0) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_0], event->data32[1]);
+				if(event->data32[0] & GPIO_MASK_1) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_1], event->data32[1]);
+				if(event->data32[0] & GPIO_MASK_2) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_2], event->data32[1]);
+				if(event->data32[0] & GPIO_MASK_3) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_3], event->data32[1]);
+				if(event->data32[0] & GPIO_MASK_4) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_4], event->data32[1]);
+				if(event->data32[0] & GPIO_MASK_5) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_5], event->data32[1]);
+				if(event->data32[0] & GPIO_MASK_6) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_6], event->data32[1]);
+				if(event->data32[0] & GPIO_MASK_7) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_7], event->data32[1]);
+				if(event->data32[0] & GPIO_MASK_8) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_8], event->data32[1]);
+				if(event->data32[0] & GPIO_MASK_9) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_9], event->data32[1]);
+				if(event->data32[0] & GPIO_MASK_10) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_10], event->data32[1]);
+				if(event->data32[0] & GPIO_MASK_11) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_11], event->data32[1]);
+				if(event->data32[0] & GPIO_MASK_GO) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_GO], event->data32[1]);
 			}
 			break;
 	}
@@ -501,16 +501,26 @@ static void atlantronic_model_event(void *opaque, int event)
 
 static void atlantronic_model_update_odometry(struct atlantronic_model_state *s, float dt)
 {
-	#define VOIE_INVERSE             0.005
-
 	s->npSpeed.x = 0.5 * (s->can_motor[0].v + s->can_motor[1].v);
 	s->npSpeed.y = 0;
-	s->npSpeed.theta = (s->can_motor[1].v - s->can_motor[0].v) * VOIE_INVERSE;
+	s->npSpeed.theta = (s->can_motor[1].v - s->can_motor[0].v) * VOIE_MOT_INV;
 	struct atlantronic_vect3 npSpeedAbs = atlantronic_vect3_loc_to_abs_speed(s->pos_robot.theta, &s->npSpeed);
 
 	s->pos_robot.x += npSpeedAbs.x * dt;
 	s->pos_robot.y += npSpeedAbs.y * dt;
 	s->pos_robot.theta += npSpeedAbs.theta * dt;
+
+	float v[2];
+	v[0] = s->npSpeed.x - 0.5 * VOIE_ODO * s->npSpeed.theta;
+	v[1] = s->npSpeed.x + 0.5 * VOIE_ODO * s->npSpeed.theta;
+
+	s->encoder[0] += v[0] * dt * ODO_ENCODER_RESOLUTION / (2 * M_PI * ODO1_WHEEL_RADIUS) ;
+	s->encoder[0] -= (floor((s->encoder[0] - 65536) / 65536) + 1 ) * 65536;
+	s->encoder[1] += v[1] * dt * ODO_ENCODER_RESOLUTION / (2 * M_PI * ODO2_WHEEL_RADIUS) ;
+	s->encoder[1] -= (floor((s->encoder[1] - 65536) / 65536) + 1 ) * 65536;
+	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ENCODER1], ((int32_t) s->encoder[0])&0xffff );
+	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ENCODER2], ((int32_t) s->encoder[1])&0xffff );
+
 }
 
 static void atlantronic_model_timer_cb(void* arg)
