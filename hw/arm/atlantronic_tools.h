@@ -2,7 +2,7 @@
 #define ATLANTRONIC_TOOLS_H
 
 #define EPSILON       0.00001f
-#define CORNER_NUM          3
+#define CORNER_NUM          4
 #define STATIC_OBJ_MAX    100
 
 struct atlantronic_vect2

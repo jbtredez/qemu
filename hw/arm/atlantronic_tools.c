@@ -2,26 +2,16 @@
 #include "kernel/robot_parameters.h"
 #include "qemu-common.h"
 
-// TODO voir pourquoi ca bug si on demarre avec atlantronic_static_obj_count = 0
-// on met un objet loin pour contourner le probleme ...
-struct atlantronic_vect2 bug[2] =
-{
-	{ -8000, -8000},
-	{  8000, -8000}
-};
+struct atlantronic_polyline atlantronic_static_obj[STATIC_OBJ_MAX];
 
-struct atlantronic_polyline atlantronic_static_obj[STATIC_OBJ_MAX] =
-{
-	{ 2, bug },
-};
-
-int atlantronic_static_obj_count = 1;
+int atlantronic_static_obj_count = 0;
 
 const struct atlantronic_vect2 corner_loc[CORNER_NUM] =
 {
-	{ 0,  155},
-	{ 0, -155},
-	{ -175,  0},
+	{ PARAM_LEFT_CORNER_X,  PARAM_LEFT_CORNER_Y},
+	{ PARAM_RIGHT_CORNER_X, PARAM_RIGHT_CORNER_Y},
+	{ PARAM_NP_X,  PARAM_LEFT_CORNER_Y},
+	{ PARAM_NP_X,  PARAM_RIGHT_CORNER_Y},
 };
 
 void atlantronic_add_object(int size, struct atlantronic_vect2* pt)

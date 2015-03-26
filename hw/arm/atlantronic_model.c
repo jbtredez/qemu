@@ -501,15 +501,54 @@ static void atlantronic_model_event(void *opaque, int event)
 
 static void atlantronic_model_update_odometry(struct atlantronic_model_state *s, float dt)
 {
+	// calcul de la nouvelle position
 	s->npSpeed.x = 0.5 * (s->can_motor[0].v + s->can_motor[1].v);
 	s->npSpeed.y = 0;
 	s->npSpeed.theta = (s->can_motor[1].v - s->can_motor[0].v) * VOIE_MOT_INV;
 	struct atlantronic_vect3 npSpeedAbs = atlantronic_vect3_loc_to_abs_speed(s->pos_robot.theta, &s->npSpeed);
 
-	s->pos_robot.x += npSpeedAbs.x * dt;
-	s->pos_robot.y += npSpeedAbs.y * dt;
-	s->pos_robot.theta += npSpeedAbs.theta * dt;
+	struct atlantronic_vect3 pos_new = s->pos_robot;
+	pos_new.x += npSpeedAbs.x * dt;
+	pos_new.y += npSpeedAbs.y * dt;
+	pos_new.theta += npSpeedAbs.theta * dt;
 
+	// detection collisions
+	struct atlantronic_vect2 corner_abs_old[CORNER_NUM];
+	struct atlantronic_vect2 corner_abs_new[CORNER_NUM];
+	int res = -1;
+	int i;
+	for(i = 0; i < CORNER_NUM && res; i++)
+	{
+		int j = 0;
+		atlantronic_vect2_loc_to_abs(&s->pos_robot, &corner_loc[i], &corner_abs_old[i]);
+		atlantronic_vect2_loc_to_abs(&pos_new, &corner_loc[i], &corner_abs_new[i]);
+		struct atlantronic_vect2 h;
+
+		for(j = 0; j < atlantronic_static_obj_count && res ; j++)
+		{
+			int k = 0;
+			for(k = 0; k < atlantronic_static_obj[j].size - 1 && res ; k++)
+			{
+				res = atlantronic_segment_intersection(atlantronic_static_obj[j].pt[k], atlantronic_static_obj[j].pt[k+1], corner_abs_old[i], corner_abs_new[i], &h);
+			}
+		}
+	}
+
+	if( ! res )
+	{
+		// bloquage d'un des moteurs - TODO : on refait le calcul pour bloquer les moteurs
+		//s->can_motor[0].block = 1;
+		//s->can_motor[1].block = 1;
+		// pour le moment, on va juste bloquer l'odometrie
+		s->npSpeed.x = 0;
+		s->npSpeed.y = 0;
+		s->npSpeed.theta = 0;
+		pos_new = s->pos_robot;
+	}
+
+	s->pos_robot = pos_new;
+
+	// mise a jour des codeurs
 	float v[2];
 	v[0] = s->npSpeed.x - 0.5 * VOIE_ODO * s->npSpeed.theta;
 	v[1] = s->npSpeed.x + 0.5 * VOIE_ODO * s->npSpeed.theta;
@@ -520,7 +559,6 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 	s->encoder[1] -= (floor((s->encoder[1] - 65536) / 65536) + 1 ) * 65536;
 	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ENCODER1], ((int32_t) s->encoder[0])&0xffff );
 	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ENCODER2], ((int32_t) s->encoder[1])&0xffff );
-
 }
 
 static void atlantronic_model_timer_cb(void* arg)
