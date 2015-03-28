@@ -6,11 +6,14 @@
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
 #include "biosvar.h" // GET_BDA
-#include "util.h" // debug_enter
-#include "config.h" // CONFIG_*
 #include "bregs.h" // struct bregs
-#include "ps2port.h" // ps2_kbd_command
-#include "usb-hid.h" // usb_kbd_command
+#include "config.h" // CONFIG_*
+#include "hw/ps2port.h" // ps2_kbd_command
+#include "hw/usb-hid.h" // usb_kbd_command
+#include "output.h" // debug_enter
+#include "stacks.h" // yield
+#include "string.h" // memset
+#include "util.h" // kbd_init
 
 // Bit definitions for BDA kbd_flag[012]
 #define KF0_RSHIFT       (1<<0)
@@ -114,8 +117,8 @@ static int
 kbd_command(int command, u8 *param)
 {
     if (usb_kbd_active())
-        return stack_hop(command, (u32)param, usb_kbd_command);
-    return stack_hop(command, (u32)param, ps2_kbd_command);
+        return usb_kbd_command(command, param);
+    return ps2_kbd_command(command, param);
 }
 
 // read keyboard input
@@ -499,7 +502,7 @@ __process_key(u8 scancode)
                 == (KF0_CTRLACTIVE|KF0_ALTACTIVE))) {
             // Ctrl+alt+del - reset machine.
             SET_BDA(soft_reset_flag, 0x1234);
-            reset_vector();
+            reset();
         }
         if (scancode >= ARRAY_SIZE(scan_to_scanascii)) {
             dprintf(1, "KBD: int09h_handler(): unknown scancode read: 0x%02x!\n"

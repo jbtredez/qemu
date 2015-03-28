@@ -449,6 +449,8 @@ void obp_fortheval_v2(char *str, int arg0, int arg1, int arg2, int arg3, int arg
   dstackcnt = dstacktmp;
 }
 
+volatile uint32_t *obp_ticks;
+
 void *
 init_openprom(void)
 {
@@ -461,9 +463,9 @@ init_openprom(void)
     romvec0.pv_romvers = 3;
     romvec0.pv_plugin_revision = 2;
     romvec0.pv_printrev = 0x20019;
-    romvec0.pv_v0mem.v0_totphys = &ptphys;
-    romvec0.pv_v0mem.v0_prommap = &ptmap;
-    romvec0.pv_v0mem.v0_available = &ptavail;
+    romvec0.pv_v0mem.v0_totphys = NULL;
+    romvec0.pv_v0mem.v0_prommap = NULL;
+    romvec0.pv_v0mem.v0_available = NULL;
     romvec0.pv_nodeops = &nodeops0;
     romvec0.pv_bootstr = (void *)doublewalk;
     romvec0.pv_v0devops.v0_devopen = &obp_devopen_handler;
@@ -479,6 +481,13 @@ init_openprom(void)
     romvec0.pv_reboot = obp_reboot_handler;
     romvec0.pv_printf = obp_printf_handler;
     romvec0.pv_abort = obp_abort_handler;
+    
+    /* Point to the Forth obp-ticks variable and reset */
+    fword("obp-ticks");
+    obp_ticks = cell2pointer(POP());
+    *obp_ticks = 0;
+    romvec0.pv_ticks = obp_ticks;
+    
     romvec0.pv_halt = obp_halt_handler;
     romvec0.pv_synchook = &sync_hook;
     romvec0.pv_v0bootargs = &obp_argp;

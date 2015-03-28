@@ -138,7 +138,7 @@ scsi-open
 \ SCSI scan at boot and child device support
 \ -----------------------------------------------------------
 
-\ We use SRP luns of the form 01000000 | (target << 8) | lun
+\ We use SRP luns of the form 01000000 | (target << 16) | lun
 \ in the top 32 bits of the 64-bit LUN
 : (set-target)
     to current-target
@@ -195,9 +195,14 @@ scsi-close        \ no further scsi words required
     THEN
 ;
 
-: virito-scsi-shutdown ( -- )
-    virtiodev virtio-scsi-shutdown
-    FALSE to initialized?
+: shutdown ( -- )
+    initialized? IF
+       my-phandle node>path open-dev ?dup IF
+          virtiodev virtio-scsi-shutdown
+          close-dev
+       THEN
+       FALSE to initialized?
+    THEN
 ;
 
 : virtio-scsi-init-and-scan  ( -- )
@@ -212,7 +217,7 @@ scsi-close        \ no further scsi words required
 	scsi-find-disks
 	setup-alias
 	TRUE to initialized?
-	['] virtio-scsi-shutdown add-quiesce-xt
+	['] shutdown add-quiesce-xt
     THEN
     \ Close the temporary instance:
     close-node

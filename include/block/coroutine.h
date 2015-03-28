@@ -105,7 +105,6 @@ bool qemu_in_coroutine(void);
  */
 typedef struct CoQueue {
     QTAILQ_HEAD(, Coroutine) entries;
-    AioContext *ctx;
 } CoQueue;
 
 /**
@@ -119,12 +118,6 @@ void qemu_co_queue_init(CoQueue *queue);
  * caller of the coroutine.
  */
 void coroutine_fn qemu_co_queue_wait(CoQueue *queue);
-
-/**
- * Adds the current coroutine to the head of the CoQueue and transfers control to the
- * caller of the coroutine.
- */
-void coroutine_fn qemu_co_queue_wait_insert_head(CoQueue *queue);
 
 /**
  * Restarts the next coroutine in the CoQueue and removes it from the queue.
@@ -210,16 +203,8 @@ void qemu_co_rwlock_unlock(CoRwlock *lock);
 /**
  * Yield the coroutine for a given duration
  *
- * Note this function uses timers and hence only works when a main loop is in
- * use.  See main-loop.h and do not use from qemu-tool programs.
- */
-void coroutine_fn co_sleep_ns(QEMUClockType type, int64_t ns);
-
-/**
- * Yield the coroutine for a given duration
- *
  * Behaves similarly to co_sleep_ns(), but the sleeping coroutine will be
- * resumed when using qemu_aio_wait().
+ * resumed when using aio_poll().
  */
 void coroutine_fn co_aio_sleep_ns(AioContext *ctx, QEMUClockType type,
                                   int64_t ns);
@@ -230,4 +215,5 @@ void coroutine_fn co_aio_sleep_ns(AioContext *ctx, QEMUClockType type,
  * Note that this function clobbers the handlers for the file descriptor.
  */
 void coroutine_fn yield_until_fd_readable(int fd);
+
 #endif /* QEMU_COROUTINE_H */

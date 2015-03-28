@@ -360,15 +360,13 @@ static uint64_t xen_pt_get_bar_size(PCIIORegion *r)
 }
 
 static XenPTBarFlag xen_pt_bar_reg_parse(XenPCIPassthroughState *s,
-                                         XenPTRegInfo *reg)
+                                         int index)
 {
     PCIDevice *d = &s->dev;
     XenPTRegion *region = NULL;
     PCIIORegion *r;
-    int index = 0;
 
     /* check 64bit BAR */
-    index = xen_pt_bar_offset_to_index(reg->offset);
     if ((0 < index) && (index < PCI_ROM_SLOT)) {
         int type = s->real_device.io_regions[index - 1].type;
 
@@ -422,7 +420,7 @@ static int xen_pt_bar_reg_init(XenPCIPassthroughState *s, XenPTRegInfo *reg,
     }
 
     /* set BAR flag */
-    s->bases[index].bar_flag = xen_pt_bar_reg_parse(s, reg);
+    s->bases[index].bar_flag = xen_pt_bar_reg_parse(s, index);
     if (s->bases[index].bar_flag == XEN_PT_BAR_FLAG_UNUSED) {
         reg_field = XEN_PT_INVALID_REG;
     }
@@ -440,7 +438,7 @@ static int xen_pt_bar_reg_read(XenPCIPassthroughState *s, XenPTReg *cfg_entry,
 
     /* get BAR index */
     index = xen_pt_bar_offset_to_index(reg->offset);
-    if (index < 0 || index >= PCI_NUM_REGIONS) {
+    if (index < 0 || index >= PCI_NUM_REGIONS - 1) {
         XEN_PT_ERR(&s->dev, "Internal error: Invalid BAR index [%d].\n", index);
         return -1;
     }
@@ -1123,8 +1121,8 @@ static int xen_pt_msgctrl_reg_write(XenPCIPassthroughState *s,
             msi->mapped = true;
         }
         msi->flags |= PCI_MSI_FLAGS_ENABLE;
-    } else {
-        msi->flags &= ~PCI_MSI_FLAGS_ENABLE;
+    } else if (msi->mapped) {
+        xen_pt_msi_disable(s);
     }
 
     /* pass through MSI_ENABLE bit */
@@ -1397,6 +1395,8 @@ static int xen_pt_msixctrl_reg_write(XenPCIPassthroughState *s,
     if ((*val & PCI_MSIX_FLAGS_ENABLE)
         && !(*val & PCI_MSIX_FLAGS_MASKALL)) {
         xen_pt_msix_update(s);
+    } else if (!(*val & PCI_MSIX_FLAGS_ENABLE) && s->msix->enabled) {
+        xen_pt_msix_disable(s);
     }
 
     debug_msix_enabled_old = s->msix->enabled;

@@ -17,7 +17,7 @@
 // Maximum number of map entries in the e820 map
 #define BUILD_MAX_E820 32
 // Space to reserve in high-memory for tables
-#define BUILD_MAX_HIGHTABLE (64*1024)
+#define BUILD_MAX_HIGHTABLE (256*1024)
 // Largest supported externaly facing drive id
 #define BUILD_MAX_EXTDRIVE 16
 // Number of bytes the smbios may be and still live in the f-segment
@@ -39,9 +39,8 @@
 #define BUILD_EXTRA_STACK_SIZE    0x800
 // 32KB for shadow ram copying (works around emulator deficiencies)
 #define BUILD_BIOS_TMP_ADDR       0x30000
-#define BUILD_SMM_INIT_ADDR       0x38000
-#define BUILD_SMM_ADDR            0xa8000
-#define BUILD_SMM_SIZE            0x8000
+#define BUILD_SMM_INIT_ADDR       0x30000
+#define BUILD_SMM_ADDR            0xa0000
 
 #define BUILD_PCIMEM_START        0xe0000000
 #define BUILD_PCIMEM_END          0xfec00000    /* IOAPIC is mapped at */
@@ -54,7 +53,7 @@
 #define BUILD_APIC_ADDR           0xfee00000
 
 // PCI IRQS
-#define BUILD_PCI_IRQS	        ((1<<5) | (1<<9) | (1<<10) | (1<<11))
+#define BUILD_PCI_IRQS            ((1<<5) | (1<<9) | (1<<10) | (1<<11))
 
 // Important real-mode segments
 #define SEG_IVT      0x0000
@@ -95,6 +94,8 @@
 #define DEBUG_ISR_76 10
 #define DEBUG_ISR_hwpic1 5
 #define DEBUG_ISR_hwpic2 5
+#define DEBUG_HDL_smi 9
+#define DEBUG_HDL_smp 1
 #define DEBUG_HDL_pnp 1
 #define DEBUG_HDL_pmm 1
 #define DEBUG_HDL_pcibios 9

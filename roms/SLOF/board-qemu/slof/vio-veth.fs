@@ -45,11 +45,19 @@ INSTANCE VARIABLE obp-tftp-package
 ;
 
 : read ( buf len -- actual )
-   veth-priv libveth-read
+   dup IF
+      veth-priv libveth-read
+   ELSE
+      nip
+   THEN
 ;
 
 : write ( buf len -- actual )
-   veth-priv libveth-write
+   dup IF
+      veth-priv libveth-write
+   ELSE
+      nip
+   THEN
 ;
 
 : load  ( addr -- len )
@@ -61,10 +69,8 @@ INSTANCE VARIABLE obp-tftp-package
 ;
 
 : setup-alias
-    " net" find-alias 0= IF
-        " net" get-node node>path set-alias
-    ELSE
-        drop
-    THEN 
+    " net" get-next-alias ?dup IF
+        get-node node>path set-alias
+    THEN
 ;
 setup-alias

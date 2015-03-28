@@ -16,8 +16,7 @@ include ../Makefile.dirs
 include $(TOPBRDDIR)/config
 include $(TOPCMNDIR)/make.rules
 
-
-all: Makefile.dep OF.ffs paflof $(SLOFCMNDIR)/xvect.bin
+all: version.o Makefile.dep OF.ffs paflof $(SLOFCMNDIR)/xvect.bin
 
 CPPFLAGS = -I$(LIBCMNDIR)/libbootmsg -I$(LIBCMNDIR)/libhvcall \
 	   -I$(LIBCMNDIR)/libvirtio -I$(LIBCMNDIR)/libnvram \
@@ -46,6 +45,11 @@ BOARD_SLOF_CODE = $(BOARD_SLOF_IN:%.in=%.code)
 
 include $(SLOFCMNDIR)/Makefile.inc
 
+AS1FLAGS  = $(CPPFLAGS) $(RELEASE) $(FLAG) $(CPUARCHDEF)  -Wa,-mregnames
+
+%.o: %.S
+	$(CC) $(AS1FLAGS) -o $@ -c $^
+
 FPPINCLUDES = -I. -I$(SLOFCMNDIR)/fs -I$(SLOFCMNDIR)
 
 USB_FFS_FILES = \
@@ -72,6 +76,7 @@ VIO_FFS_FILES = \
 	$(SLOFBRDDIR)/virtio-net.fs \
 	$(SLOFBRDDIR)/virtio-block.fs \
 	$(SLOFBRDDIR)/virtio-fs.fs \
+	$(SLOFBRDDIR)/dev-null.fs \
 	$(SLOFBRDDIR)/virtio-scsi.fs
 
 # Files that should go into the ROM fs (and so have to be listed in OF.ffs):
@@ -79,6 +84,7 @@ OF_FFS_FILES = \
 	$(SLOFCMNDIR)/fs/ide.fs \
 	$(SLOFCMNDIR)/fs/fbuffer.fs \
 	$(SLOFCMNDIR)/fs/generic-disk.fs \
+	$(SLOFCMNDIR)/fs/dma-function.fs \
 	$(SLOFCMNDIR)/fs/pci-device.fs \
 	$(SLOFCMNDIR)/fs/pci-bridge.fs \
 	$(SLOFCMNDIR)/fs/pci-properties.fs \

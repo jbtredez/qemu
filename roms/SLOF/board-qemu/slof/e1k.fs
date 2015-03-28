@@ -15,13 +15,16 @@
 s" network" device-type
 
 INSTANCE VARIABLE obp-tftp-package
+get-node CONSTANT my-phandle
+10 config-l@ translate-my-address 3 not AND CONSTANT baseaddr
 
 0 VALUE e1k-priv
 0 VALUE open-count
 
 : open  ( -- okay? )
    open-count 0= IF
-      open IF
+       open IF
+	 baseaddr
          e1k-open dup not IF ." e1k-open failed" EXIT THEN
          drop TO e1k-priv
          true
@@ -37,6 +40,7 @@ INSTANCE VARIABLE obp-tftp-package
 
 
 : close  ( -- )
+   my-phandle set-node
    open-count 0> IF
       open-count 1 - dup to open-count
       0= IF
@@ -78,18 +82,17 @@ INSTANCE VARIABLE obp-tftp-package
    decode-int nip nip
    " device-id" get-node get-property IF EXIT THEN
    decode-int nip nip
-   " 10 config-l@ translate-my-address 3 not AND" evaluate
+   baseaddr
    local-mac e1k-mac-setup IF
       encode-bytes  " local-mac-address"  property
    THEN
 ;
+
 setup-mac
 
 : setup-alias  ( -- )
-   s" net" find-alias 0= IF
-      s" net" get-node node>path set-alias
-   ELSE
-      drop
+   " net" get-next-alias ?dup IF
+      get-node node>path set-alias
    THEN
 ;
 setup-alias

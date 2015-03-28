@@ -66,6 +66,12 @@ rtas-cb /rtas-control-block erase
 
 \    ." RTAS found, base=" rtas-base . ."  size=" rtas-size . cr
 
+    \ Patch the RTAS blob with our sc1 patcher if necessary
+    0
+    rtas-base
+    dup rtas-size +
+    check-and-patch-sc1
+
     device-end
 ;
 find-qemu-rtas
@@ -168,7 +174,14 @@ rtas-node set-node
 
 : instantiate-rtas ( adr -- entry )
     dup rtas-base swap rtas-size move
-    rtas-entry rtas-base - +
+    dup rtas-entry rtas-base - +
+    2dup hv-rtas-update dup 0 <> IF
+	\ Ignore hcall not implemented error, print error otherwise
+	dup -2 <> IF ." HV-RTAS-UPDATE error: " . cr ELSE drop THEN
+    ELSE
+	drop
+    THEN
+    nip
 ;
 
 device-end

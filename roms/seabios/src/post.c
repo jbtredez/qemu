@@ -5,27 +5,29 @@
 //
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
-#include "config.h" // CONFIG_*
-#include "cmos.h" // CMOS_*
-#include "util.h" // memset
-#include "biosvar.h" // struct bios_data_area_s
-#include "disk.h" // floppy_setup
-#include "ata.h" // ata_setup
-#include "ahci.h" // ahci_setup
-#include "memmap.h" // add_e820
-#include "pic.h" // pic_setup
+#include "biosvar.h" // SET_BDA
 #include "bregs.h" // struct bregs
-#include "boot.h" // boot_init
-#include "usb.h" // usb_setup
-#include "paravirt.h" // qemu_cfg_preinit
-#include "xen.h" // xen_preinit
-#include "ps2port.h" // ps2port_setup
-#include "virtio-blk.h" // virtio_blk_setup
-#include "virtio-scsi.h" // virtio_scsi_setup
-#include "lsi-scsi.h" // lsi_scsi_setup
-#include "esp-scsi.h" // esp_scsi_setup
-#include "megasas.h" // megasas_setup
-#include "post.h" // interface_init
+#include "config.h" // CONFIG_*
+#include "fw/paravirt.h" // qemu_cfg_preinit
+#include "fw/xen.h" // xen_preinit
+#include "hw/ahci.h" // ahci_setup
+#include "hw/ata.h" // ata_setup
+#include "hw/esp-scsi.h" // esp_scsi_setup
+#include "hw/lsi-scsi.h" // lsi_scsi_setup
+#include "hw/megasas.h" // megasas_setup
+#include "hw/pvscsi.h" // pvscsi_setup
+#include "hw/pic.h" // pic_setup
+#include "hw/ps2port.h" // ps2port_setup
+#include "hw/rtc.h" // rtc_write
+#include "hw/serialio.h" // serial_debug_preinit
+#include "hw/usb.h" // usb_setup
+#include "hw/virtio-blk.h" // virtio_blk_setup
+#include "hw/virtio-scsi.h" // virtio_scsi_setup
+#include "malloc.h" // malloc_init
+#include "memmap.h" // add_e820
+#include "output.h" // dprintf
+#include "string.h" // memset
+#include "util.h" // kbd_init
 
 
 /****************************************************************
@@ -39,7 +41,7 @@ ivt_init(void)
 
     // Setup reset-vector entry point (controls legacy reboots).
     HaveRunPost = 1;
-    outb_cmos(0, CMOS_RESET_CODE);
+    rtc_write(CMOS_RESET_CODE, 0);
 
     // Initialize all vectors to the default handler.
     int i;
@@ -59,7 +61,7 @@ ivt_init(void)
     SET_IVT(0x12, FUNC16(entry_12));
     SET_IVT(0x13, FUNC16(entry_13_official));
     SET_IVT(0x14, FUNC16(entry_14));
-    SET_IVT(0x15, FUNC16(entry_15));
+    SET_IVT(0x15, FUNC16(entry_15_official));
     SET_IVT(0x16, FUNC16(entry_16));
     SET_IVT(0x17, FUNC16(entry_17));
     SET_IVT(0x18, FUNC16(entry_18));
@@ -85,17 +87,21 @@ bda_init(void)
     memset(bda, 0, sizeof(*bda));
 
     int esize = EBDA_SIZE_START;
-    SET_BDA(mem_size_kb, BUILD_LOWRAM_END/1024 - esize);
     u16 ebda_seg = EBDA_SEGMENT_START;
+    extern u8 final_varlow_start[];
+    if (!CONFIG_MALLOC_UPPERMEMORY)
+        ebda_seg = FLATPTR_TO_SEG(ALIGN_DOWN((u32)final_varlow_start, 1024)
+                                  - EBDA_SIZE_START*1024);
     SET_BDA(ebda_seg, ebda_seg);
+
+    SET_BDA(mem_size_kb, ebda_seg / (1024/16));
 
     // Init ebda
     struct extended_bios_data_area_s *ebda = get_ebda_ptr();
     memset(ebda, 0, sizeof(*ebda));
     ebda->size = esize;
 
-    add_e820((u32)MAKE_FLATPTR(ebda_seg, 0), GET_EBDA(ebda_seg, size) * 1024
-             , E820_RESERVED);
+    add_e820((u32)ebda, BUILD_LOWRAM_END-(u32)ebda, E820_RESERVED);
 
     // Init extra stack
     StackPos = (void*)(&ExtraStack[BUILD_EXTRA_STACK_SIZE] - zonelow_base);
@@ -116,6 +122,7 @@ interface_init(void)
     bda_init();
 
     // Other interfaces
+    thread_init();
     boot_init();
     bios32_init();
     pmm_init();
@@ -136,6 +143,7 @@ device_hardware_setup(void)
     floppy_setup();
     ata_setup();
     ahci_setup();
+    sdcard_setup();
     cbfs_payload_setup();
     ramdisk_setup();
     virtio_blk_setup();
@@ -143,6 +151,7 @@ device_hardware_setup(void)
     lsi_scsi_setup();
     esp_scsi_setup();
     megasas_setup();
+    pvscsi_setup();
 }
 
 static void
@@ -158,6 +167,7 @@ platform_hardware_setup(void)
     pic_setup();
     mathcp_setup();
     timer_setup();
+    clock_setup();
 
     // Platform specific setup
     qemu_platform_setup();
@@ -175,6 +185,8 @@ prepareboot(void)
     pmm_prepboot();
     malloc_prepboot();
     memmap_prepboot();
+
+    HaveRunPost = 2;
 
     // Setup bios checksum.
     BiosChecksum -= checksum((u8*)BUILD_BIOS_ADDR, BUILD_BIOS_SIZE);
@@ -204,15 +216,15 @@ maininit(void)
     // Setup platform devices.
     platform_hardware_setup();
 
-    // Start hardware initialization (if optionrom threading)
-    if (CONFIG_THREAD_OPTIONROMS)
+    // Start hardware initialization (if threads allowed during optionroms)
+    if (threads_during_optionroms())
         device_hardware_setup();
 
     // Run vga option rom
     vgarom_setup();
 
     // Do hardware initialization (if running synchronously)
-    if (!CONFIG_THREAD_OPTIONROMS) {
+    if (!threads_during_optionroms()) {
         device_hardware_setup();
         wait_threads();
     }
@@ -310,8 +322,8 @@ handle_post(void)
     if (!CONFIG_QEMU && !CONFIG_COREBOOT)
         return;
 
-    debug_serial_preinit();
-    dprintf(1, "Start bios (version %s)\n", VERSION);
+    serial_debug_preinit();
+    debug_banner();
 
     // Check if we are running under Xen.
     xen_preinit();

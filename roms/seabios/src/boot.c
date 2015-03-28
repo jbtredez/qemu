@@ -1,21 +1,24 @@
 // Code to load disk image and start system boot.
 //
-// Copyright (C) 2008-2010  Kevin O'Connor <kevin@koconnor.net>
+// Copyright (C) 2008-2013  Kevin O'Connor <kevin@koconnor.net>
 // Copyright (C) 2002  MandrakeSoft S.A.
 //
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
-#include "util.h" // dprintf
-#include "config.h" // CONFIG_*
-#include "disk.h" // cdrom_boot
+#include "block.h" // struct drive_s
 #include "bregs.h" // struct bregs
-#include "boot.h" // func defs
-#include "cmos.h" // inb_cmos
-#include "paravirt.h" // qemu_cfg_show_boot_menu
-#include "pci.h" // pci_bdf_to_*
-#include "usb.h" // struct usbdevice_s
-#include "csm.h" // csm_bootprio_*
+#include "config.h" // CONFIG_*
+#include "fw/paravirt.h" // qemu_cfg_show_boot_menu
+#include "hw/pci.h" // pci_bdf_to_*
+#include "hw/rtc.h" // rtc_read
+#include "hw/usb.h" // struct usbdevice_s
 #include "list.h" // hlist_node
+#include "malloc.h" // free
+#include "output.h" // dprintf
+#include "romfile.h" // romfile_loadint
+#include "std/disk.h" // struct mbr_s
+#include "string.h" // memset
+#include "util.h" // irqtimer_calc
 
 
 /****************************************************************
@@ -50,15 +53,15 @@ loadBootOrder(void)
         return;
     }
 
-    dprintf(3, "boot order:\n");
+    dprintf(1, "boot order:\n");
     i = 0;
     do {
         Bootorder[i] = f;
         f = strchr(f, '\n');
         if (f)
             *(f++) = '\0';
-        nullTrailingSpace(Bootorder[i]);
-        dprintf(3, "%d: %s\n", i+1, Bootorder[i]);
+        Bootorder[i] = nullTrailingSpace(Bootorder[i]);
+        dprintf(1, "%d: %s\n", i+1, Bootorder[i]);
         i++;
     } while (f);
 }
@@ -142,7 +145,7 @@ int bootprio_find_scsi_device(struct pci_device *pci, int target, int lun)
     // Find scsi drive - for example: /pci@i0cf8/scsi@5/channel@0/disk@1,0
     char desc[256], *p;
     p = build_pci_path(desc, sizeof(desc), "*", pci);
-    snprintf(p, desc+sizeof(desc)-p, "/*@0/*@%d,%d", target, lun);
+    snprintf(p, desc+sizeof(desc)-p, "/*@0/*@%x,%x", target, lun);
     return find_prio(desc);
 }
 
@@ -186,7 +189,7 @@ int bootprio_find_pci_rom(struct pci_device *pci, int instance)
     char desc[256], *p;
     p = build_pci_path(desc, sizeof(desc), "*", pci);
     if (instance)
-        snprintf(p, desc+sizeof(desc)-p, ":rom%d", instance);
+        snprintf(p, desc+sizeof(desc)-p, ":rom%x", instance);
     return find_prio(desc);
 }
 
@@ -198,7 +201,7 @@ int bootprio_find_named_rom(const char *name, int instance)
     char desc[256], *p;
     p = desc + snprintf(desc, sizeof(desc), "/rom@%s", name);
     if (instance)
-        snprintf(p, desc+sizeof(desc)-p, ":rom%d", instance);
+        snprintf(p, desc+sizeof(desc)-p, ":rom%x", instance);
     return find_prio(desc);
 }
 
@@ -221,7 +224,7 @@ int bootprio_find_usb(struct usbdevice_s *usbdev, int lun)
     char desc[256], *p;
     p = build_pci_path(desc, sizeof(desc), "usb", usbdev->hub->cntl->pci);
     p = build_usb_path(p, desc+sizeof(desc)-p, usbdev->hub);
-    snprintf(p, desc+sizeof(desc)-p, "/storage@%x/*@0/*@0,%d"
+    snprintf(p, desc+sizeof(desc)-p, "/storage@%x/*@0/*@0,%x"
              , usbdev->port+1, lun);
     int ret = find_prio(desc);
     if (ret >= 0)
@@ -254,10 +257,10 @@ boot_init(void)
 
     if (CONFIG_QEMU) {
         // On emulators, get boot order from nvram.
-        if (inb_cmos(CMOS_BIOS_BOOTFLAG1) & 1)
+        if (rtc_read(CMOS_BIOS_BOOTFLAG1) & 1)
             CheckFloppySig = 0;
-        u32 bootorder = (inb_cmos(CMOS_BIOS_BOOTFLAG2)
-                         | ((inb_cmos(CMOS_BIOS_BOOTFLAG1) & 0xf0) << 4));
+        u32 bootorder = (rtc_read(CMOS_BIOS_BOOTFLAG2)
+                         | ((rtc_read(CMOS_BIOS_BOOTFLAG1) & 0xf0) << 4));
         DefaultFloppyPrio = DefaultCDPrio = DefaultHDPrio
             = DefaultBEVPrio = DEFAULT_PRIO;
         int i;
@@ -396,6 +399,48 @@ boot_add_cbfs(void *data, const char *desc, int prio)
 
 
 /****************************************************************
+ * Keyboard calls
+ ****************************************************************/
+
+// See if a keystroke is pending in the keyboard buffer.
+static int
+check_for_keystroke(void)
+{
+    struct bregs br;
+    memset(&br, 0, sizeof(br));
+    br.flags = F_IF|F_ZF;
+    br.ah = 1;
+    call16_int(0x16, &br);
+    return !(br.flags & F_ZF);
+}
+
+// Return a keystroke - waiting forever if necessary.
+static int
+get_raw_keystroke(void)
+{
+    struct bregs br;
+    memset(&br, 0, sizeof(br));
+    br.flags = F_IF;
+    call16_int(0x16, &br);
+    return br.ah;
+}
+
+// Read a keystroke - waiting up to 'msec' milliseconds.
+static int
+get_keystroke(int msec)
+{
+    u32 end = irqtimer_calc(msec);
+    for (;;) {
+        if (check_for_keystroke())
+            return get_raw_keystroke();
+        if (irqtimer_check(end))
+            return -1;
+        yield_toirq();
+    }
+}
+
+
+/****************************************************************
  * Boot menu and BCV execution
  ****************************************************************/
 
@@ -413,14 +458,16 @@ interactive_bootmenu(void)
     while (get_keystroke(0) >= 0)
         ;
 
-    printf("\nPress F12 for boot menu.\n\n");
+    char *bootmsg = romfile_loadfile("etc/boot-menu-message", NULL);
+    int menukey = romfile_loadint("etc/boot-menu-key", 0x86);
+    printf("%s", bootmsg ?: "\nPress F12 for boot menu.\n\n");
+    free(bootmsg);
 
     u32 menutime = romfile_loadint("etc/boot-menu-wait", DEFAULT_BOOTMENU_WAIT);
     enable_bootsplash();
     int scan_code = get_keystroke(menutime);
     disable_bootsplash();
-    if (scan_code != 0x86)
-        /* not F12 */
+    if (scan_code != menukey)
         return;
 
     while (get_keystroke(0) >= 0)
@@ -596,7 +643,7 @@ boot_cdrom(struct drive_s *drive_g)
         return;
     }
 
-    u8 bootdrv = CDEmu.emulated_extdrive;
+    u8 bootdrv = CDEmu.emulated_drive;
     u16 bootseg = CDEmu.load_segment;
     /* Canonicalize bootseg:bootip */
     u16 bootip = (bootseg & 0x0fff) << 4;
@@ -635,17 +682,14 @@ boot_fail(void)
         printf("No bootable device.  Retrying in %d seconds.\n"
                , BootRetryTime/1000);
     // Wait for 'BootRetryTime' milliseconds and then reboot.
-    u32 end = calc_future_timer(BootRetryTime);
+    u32 end = irqtimer_calc(BootRetryTime);
     for (;;) {
-        if (BootRetryTime != (u32)-1 && check_timer(end))
+        if (BootRetryTime != (u32)-1 && irqtimer_check(end))
             break;
         yield_toirq();
     }
     printf("Rebooting.\n");
-    struct bregs br;
-    memset(&br, 0, sizeof(br));
-    br.code = SEGOFF(SEG_BIOS, (u32)reset_vector);
-    farcall16big(&br);
+    reset();
 }
 
 // Determine next boot method and attempt a boot using it.
@@ -696,7 +740,6 @@ int BootSequence VARLOW = -1;
 void VISIBLE32FLAT
 handle_18(void)
 {
-    debug_serial_preinit();
     debug_enter(NULL, DEBUG_HDL_18);
     int seq = BootSequence + 1;
     BootSequence = seq;
@@ -707,7 +750,6 @@ handle_18(void)
 void VISIBLE32FLAT
 handle_19(void)
 {
-    debug_serial_preinit();
     debug_enter(NULL, DEBUG_HDL_19);
     BootSequence = 0;
     do_boot(0);

@@ -19,7 +19,7 @@
 #undef OHCI_DEBUG
 //#define OHCI_DEBUG
 #ifdef OHCI_DEBUG
-#define dprintf(_x ...) printf(_x)
+#define dprintf(_x ...) do { printf(_x); } while(0)
 #else
 #define dprintf(_x ...)
 #endif
@@ -27,7 +27,7 @@
 #undef OHCI_DEBUG_PACKET
 //#define OHCI_DEBUG_PACKET
 #ifdef OHCI_DEBUG_PACKET
-#define dpprintf(_x ...) printf(_x)
+#define dpprintf(_x ...) do { printf(_x); } while(0)
 #else
 #define dpprintf(_x ...)
 #endif
@@ -339,10 +339,15 @@ static void ohci_exit(struct usb_hcd_dev *hcidev)
 	write_reg32(&ohcd->regs->control, (OHCI_CTRL_CBSR | OHCI_USB_SUSPEND));
 	SLOF_msleep(20);
 	write_reg32(&ohcd->regs->hcca, cpu_to_le32(0));
-	SLOF_dma_map_out(ohcd->pool_phys, ohcd->pool, OHCI_PIPE_POOL_SIZE);
-	SLOF_dma_free(ohcd->pool, OHCI_PIPE_POOL_SIZE);
-	SLOF_dma_map_out(ohcd->hcca_phys, ohcd->hcca, sizeof(struct ohci_hcca));
-	SLOF_dma_free(ohcd->hcca, sizeof(struct ohci_hcca));
+
+	if (ohcd->pool) {
+		SLOF_dma_map_out(ohcd->pool_phys, ohcd->pool, OHCI_PIPE_POOL_SIZE);
+		SLOF_dma_free(ohcd->pool, OHCI_PIPE_POOL_SIZE);
+	}
+	if (ohcd->hcca) {
+		SLOF_dma_map_out(ohcd->hcca_phys, ohcd->hcca, sizeof(struct ohci_hcca));
+		SLOF_dma_free(ohcd->hcca, sizeof(struct ohci_hcca));
+	}
 	SLOF_free_mem(ohcd, sizeof(struct ohci_hcd));
 	return;
 }
@@ -414,80 +419,83 @@ static int ohci_process_done_head(struct ohci_hcd *ohcd,
 	struct ohci_hcca *hcca;
 	struct ohci_td *td_phys = NULL, *td_start_phys;
 	struct ohci_td *td, *prev_td = NULL;
-	uint32_t reg = 0, start_frame = 0, time = 0;
+	uint32_t reg = 0, time = 0;
 	int ret = true;
 	long count;
 
 	count = total_count;
 	td_start_phys = (struct ohci_td *) __td_start_phys;
 	hcca = ohcd->hcca;
-	start_frame = hcca->frame_num;
 	time = SLOF_GetTimer() + USB_TIMEOUT;
 	dpprintf("Claiming %ld\n", count);
 
-	while(time > SLOF_GetTimer()) {
-		if (hcca->frame_num != start_frame)
-			break;
-		cpu_relax();
-	}
-	if (hcca->frame_num == start_frame)
-		dprintf("frame not changed %x\n", start_frame);
-
-	time = SLOF_GetTimer() + USB_TIMEOUT;
-	while (count > 0) {
-		mb();
-		while(time > SLOF_GetTimer()) {
-			td_phys = (struct ohci_td *)(uint64_t) le32_to_cpu(hcca->done_head);
-			if (td_phys)
-				break;
-			cpu_relax();
-		}
-		mb();
-
+again:
+	mb();
+	/* Check if there is an interrupt */
+	reg = read_reg32(&ohcd->regs->intr_status);
+	while(!(reg & OHCI_INTR_STATUS_WD))
+	{
 		if (time < SLOF_GetTimer()) {
-			ret = false;
+			printf("Timed out waiting for interrupt %x\n", reg);
+			return false;
+		}
+		mb();
+		reg = read_reg32(&ohcd->regs->intr_status);
+	}
+
+	/* Interrupt is there, read from done_head pointer */
+	td_phys = (struct ohci_td *)(uint64_t) le32_to_cpu(hcca->done_head);
+	if (!td_phys) {
+		dprintf("Again td_phys null %ld\n");
+		goto again;
+	}
+	hcca->done_head = 0;
+	mb();
+
+	while (td_phys && (count > 0)) {
+		td = (struct ohci_td *)(uint64_t) ohci_get_td_virt(td_phys,
+								td_start_phys,
+								PTR_U32(td_start),
+								total_count);
+
+		if (!td) {
+			printf("USB: Error TD null %p\n", td_phys);
 			break;
 		}
-
-		td = (struct ohci_td *)(uint64_t) ohci_get_td_virt(td_phys,
-								   td_start_phys,
-								PTR_U32(td_start), total_count);
-
-		while ((td != NULL) && (count > 0)) {
-			count--;
-			dpprintf("Claimed %p(%p) td_start %p count %ld\n",
-				td, td_phys, td_start_phys, count);
-			dpprintf("%s: cbp %08X attr %08X next_td %08X be %08X\n",
-				 __func__,
-				 le32_to_cpu(td->cbp), le32_to_cpu(td->attr),
-				 le32_to_cpu(td->next_td), le32_to_cpu(td->be));
-			mb();
-			reg = (le32_to_cpu(td->attr) & TDA_CC) >> 28;
-			if (reg) {
-			  dprintf("%s: cbp %08X attr %08X next_td %08X be %08X\n",
-				  __func__,
-				  le32_to_cpu(td->cbp), le32_to_cpu(td->attr),
-				  le32_to_cpu(td->next_td), le32_to_cpu(td->be));
-				printf("USB: Error %s %p\n", tda_cc_error[reg], td);
-				if (reg > 3) /* Return negative error code */
-					ret = reg * -1;
-			}
-			prev_td = td;
-			td_phys = (struct ohci_td *)(uint64_t) le32_to_cpu(td->next_td);
-			td = (struct ohci_td *)(uint64_t) ohci_get_td_virt(td_phys,
-									td_start_phys,
-									PTR_U32(td_start), total_count);
-			mb();
-			prev_td->attr |= cpu_to_le32(TDA_DONE);
-			prev_td->next_td = 0;
-			mb();
-		}
-		/* clear the WD interrupt status*/
-		write_reg32(&ohcd->regs->intr_status, OHCI_INTR_STATUS_WD);
+		count--;
+		dprintf("Claimed %p(%p) td_start %p count %ld\n",
+			td, td_phys, td_start_phys, count);
+		dpprintf("%s: cbp %08X attr %08X next_td %08X be %08X\n",
+			__func__,
+			le32_to_cpu(td->cbp), le32_to_cpu(td->attr),
+			le32_to_cpu(td->next_td), le32_to_cpu(td->be));
 		mb();
-		read_reg32(&ohcd->regs->intr_status);
+		reg = (le32_to_cpu(td->attr) & TDA_CC) >> 28;
+		if (reg) {
+			dprintf("%s: cbp %08X attr %08X next_td %08X be %08X\n",
+				__func__,
+				le32_to_cpu(td->cbp), le32_to_cpu(td->attr),
+				le32_to_cpu(td->next_td), le32_to_cpu(td->be));
+			printf("USB: Error %s %p\n", tda_cc_error[reg], td);
+			if (reg > 3) /* Return negative error code */
+				ret = reg * -1;
+		}
+		prev_td = td;
+		td_phys = (struct ohci_td *)(uint64_t) le32_to_cpu(td->next_td);
+		prev_td->attr |= cpu_to_le32(TDA_DONE);
+		prev_td->next_td = 0;
+		mb();
 	}
-	dpprintf("TDs left to be claimed td %p %ld\n", td, count);
+	/* clear the WD interrupt status */
+	write_reg32(&ohcd->regs->intr_status, OHCI_INTR_STATUS_WD);
+	mb();
+	read_reg32(&ohcd->regs->intr_status);
+
+	if (count > 0) {
+		dpprintf("Pending count %d\n", count);
+		goto again;
+	}
+	dprintf("TD claims done\n");
 	return ret;
 }
 

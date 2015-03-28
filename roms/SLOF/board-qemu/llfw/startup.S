@@ -18,8 +18,6 @@
 #include <cpu.h>
 #include <macros.h>
 
-.global print_version_done
-
 	/* qemu entry:
 	 *
 	 * __start loaded at 0x100
@@ -63,7 +61,7 @@ __start:
 	mflr	r0
 // 10
 	mtsprg  3,r0
-	ld	r0, (\i + 0x160)(0)
+	ld	r0, (\i + 0x60)(0)
 	mtctr	r0
 	li	r0, \i + 0x100
 // 20
@@ -114,7 +112,6 @@ _start:
 	bl	putc
 
 	bl	print_version
-print_version_done:
 
 	/* go! */
 	li	r3,__startC@l

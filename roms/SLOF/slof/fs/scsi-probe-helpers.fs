@@ -56,18 +56,12 @@
     nip
 ;
 
-8 CONSTANT MAX-ALIAS
-0 VALUE srplun
 : make-media-alias ( $name srplun -- )
-    TO srplun
-    2dup find-alias IF
-        drop MAX-ALIAS 1 DO
-            i $cathex 2dup find-alias 0= IF
-                strdup srplun make-disk-alias UNLOOP EXIT
-            ELSE drop THEN
-        LOOP
+    >r
+    get-next-alias ?dup IF
+        r> make-disk-alias
     ELSE
-        srplun make-disk-alias
+        r> drop
     THEN
 ;
 

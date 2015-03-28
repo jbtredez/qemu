@@ -124,7 +124,7 @@ static void uart_write(void *opaque, hwaddr addr, uint64_t value,
     switch (addr) {
     case R_RXTX:
         if (s->chr) {
-            qemu_chr_fe_write(s->chr, &ch, 1);
+            qemu_chr_fe_write_all(s->chr, &ch, 1);
         }
         s->regs[R_STAT] |= STAT_TX_EVT;
         break;
@@ -221,8 +221,7 @@ static const VMStateDescription vmstate_milkymist_uart = {
     .name = "milkymist-uart",
     .version_id = 1,
     .minimum_version_id = 1,
-    .minimum_version_id_old = 1,
-    .fields      = (VMStateField[]) {
+    .fields = (VMStateField[]) {
         VMSTATE_UINT32_ARRAY(regs, MilkymistUartState, R_MAX),
         VMSTATE_END_OF_LIST()
     }

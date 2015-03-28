@@ -9,6 +9,7 @@
 #include "config.h"
 #include "libopenbios/openbios.h"
 #include "libopenbios/bindings.h"
+#include "libopenbios/console.h"
 #include "drivers/drivers.h"
 #include "asm/types.h"
 #include "dict.h"
@@ -22,6 +23,7 @@
 #include "boot.h"
 #include "romvec.h"
 #include "openprom.h"
+#include "psr.h"
 #include "libopenbios/video.h"
 #define NO_QEMU_PROTOS
 #include "arch/common/fw_cfg.h"
@@ -40,6 +42,7 @@ struct hwdef {
     unsigned long aux1_offset, aux2_offset;
     uint64_t dma_base, esp_base, le_base;
     uint64_t tcx_base;
+    int intr_ncpu;
     int mid_offset;
     int machine_id_low, machine_id_high;
 };
@@ -56,6 +59,7 @@ static const struct hwdef hwdefs[] = {
         .fd_offset    = 0x00400000,
         .counter_offset = 0x00d00000,
         .intr_offset  = 0x00e00000,
+        .intr_ncpu    = 1,
         .aux1_offset  = 0x00900000,
         .aux2_offset  = 0x00910000,
         .dma_base     = 0x78400000,
@@ -65,7 +69,7 @@ static const struct hwdef hwdefs[] = {
         .machine_id_low = 32,
         .machine_id_high = 63,
     },
-    /* SS-10 */
+    /* SS-10, SS-20 */
     {
         .iommu_base   = 0xfe0000000ULL,
         .tcx_base     = 0xe20000000ULL,
@@ -76,6 +80,7 @@ static const struct hwdef hwdefs[] = {
         .fd_offset    = 0x00700000, // 0xff1700000ULL,
         .counter_offset = 0x00300000, // 0xff1300000ULL,
         .intr_offset  = 0x00400000, // 0xff1400000ULL,
+        .intr_ncpu    = 4,
         .aux1_offset  = 0x00800000, // 0xff1800000ULL,
         .aux2_offset  = 0x00a01000, // 0xff1a01000ULL,
         .dma_base     = 0xef0400000ULL,
@@ -96,6 +101,7 @@ static const struct hwdef hwdefs[] = {
         .fd_offset    = -1,
         .counter_offset = 0x00300000, // 0xff1300000ULL,
         .intr_offset  = 0x00400000, // 0xff1400000ULL,
+        .intr_ncpu    = 4,
         .aux1_offset  = 0x00800000, // 0xff1800000ULL,
         .aux2_offset  = 0x00a01000, // 0xff1a01000ULL, XXX should not exist
         .dma_base     = 0xef0081000ULL,
@@ -836,7 +842,7 @@ arch_init( void )
 #ifdef CONFIG_DRIVER_OBIO
         mem_size = fw_cfg_read_i32(FW_CFG_RAM_SIZE);
 	ob_obio_init(hwdef->slavio_base, hwdef->fd_offset,
-                     hwdef->counter_offset, hwdef->intr_offset,
+                     hwdef->counter_offset, hwdef->intr_offset, hwdef->intr_ncpu,
                      hwdef->aux1_offset, hwdef->aux2_offset,
                      mem_size);
 
@@ -859,8 +865,13 @@ arch_init( void )
         romvec = init_openprom();
 
 	kernel_size = fw_cfg_read_i32(FW_CFG_KERNEL_SIZE);
-	if (kernel_size)
+	if (kernel_size) {
 		kernel_image = fw_cfg_read_i32(FW_CFG_KERNEL_ADDR);
+
+		/* Mark the kernel memory as in use */
+		ofmem_claim_phys(PAGE_ALIGN(kernel_image), PAGE_ALIGN(kernel_size), 0);
+		ofmem_claim_virt(PAGE_ALIGN(kernel_image), PAGE_ALIGN(kernel_size), 0);
+	}
 
         kernel_cmdline = (const char *) fw_cfg_read_i32(FW_CFG_KERNEL_CMDLINE);
         if (kernel_cmdline) {
@@ -911,7 +922,14 @@ arch_init( void )
         fword("find-device");
 
         setup_uuid();
+
+	/* Enable interrupts */
+	temp = get_psr();
+	temp = (temp & ~PSR_PIL) | (13 << 8); /* Enable CPU timer interrupt (level 14) */
+	put_psr(temp);
 }
+
+extern struct _console_ops arch_console_ops;
 
 int openbios(void)
 {
@@ -927,6 +945,9 @@ int openbios(void)
         if (!hwdef)
             for(;;); // Internal inconsistency, hang
 
+#ifdef CONFIG_DEBUG_CONSOLE
+        init_console(arch_console_ops);
+#endif
         /* Make sure we setup OFMEM before the MMU as we need malloc() to setup page tables */
         ofmem_init();
 
@@ -935,7 +956,7 @@ int openbios(void)
 #endif
 #ifdef CONFIG_DEBUG_CONSOLE
 #ifdef CONFIG_DEBUG_CONSOLE_SERIAL
-	uart_init(hwdef->serial_base | (CONFIG_SERIAL_PORT? 0ULL: 4ULL),
+	escc_uart_init(hwdef->serial_base | (CONFIG_SERIAL_PORT? 0ULL: 4ULL),
                   CONFIG_SERIAL_SPEED);
 #endif
 #ifdef CONFIG_DEBUG_CONSOLE_VIDEO

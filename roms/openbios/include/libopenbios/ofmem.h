@@ -127,17 +127,20 @@ extern phys_addr_t ofmem_translate( ucell virt, ucell *ret_mode );
 extern phandle_t s_phandle_memory;
 extern phandle_t s_phandle_mmu;
 
-/* Currently the same for all architectures */
-#define PAGE_SHIFT   12
-
 #define PAGE_SIZE    (1 << PAGE_SHIFT)
 #define PAGE_MASK    (~(PAGE_SIZE - 1))
 #define PAGE_ALIGN(addr)  (((addr) + PAGE_SIZE - 1) & PAGE_MASK)
 
 #if defined(CONFIG_DEBUG_OFMEM)
-# define OFMEM_TRACE(fmt, ...) do { printk("OFMEM: " fmt, ## __VA_ARGS__); } while (0)
+    #define DEBUG_OFMEM 1
 #else
-# define OFMEM_TRACE(fmt, ...) do {} while(0)
+    #define DEBUG_OFMEM 0
 #endif
+
+#define OFMEM_TRACE(fmt, ...) do { \
+    if (DEBUG_OFMEM) { \
+        printk("OFMEM: " fmt, ## __VA_ARGS__); \
+    } \
+} while (0);
 
 #endif   /* _H_OFMEM */

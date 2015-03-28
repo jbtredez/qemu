@@ -1,4 +1,4 @@
-// Option rom scanning code.
+// Initialize the VGA console and possibly show a boot splash image.
 //
 // Copyright (C) 2009-2010  coresystems GmbH
 // Copyright (C) 2010  Kevin O'Connor <kevin@koconnor.net>
@@ -6,13 +6,15 @@
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
 #include "bregs.h" // struct bregs
-#include "farptr.h" // FLATPTR_TO_SEG
 #include "config.h" // CONFIG_*
-#include "util.h" // dprintf
-#include "jpeg.h" // splash
-#include "vbe.h" // struct vbe_info
-#include "bmp.h" // bmp_alloc
-#include "smbios.h" // display_uuid
+#include "farptr.h" // FLATPTR_TO_SEG
+#include "malloc.h" // free
+#include "output.h" // dprintf
+#include "romfile.h" // romfile_loadfile
+#include "stacks.h" // call16_int
+#include "std/vbe.h" // struct vbe_info
+#include "string.h" // memset
+#include "util.h" // enable_bootsplash
 
 
 /****************************************************************

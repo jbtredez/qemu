@@ -6,14 +6,19 @@
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
 #include "bregs.h" // struct bregs
-#include "farptr.h" // FLATPTR_TO_SEG
 #include "config.h" // CONFIG_*
-#include "util.h" // dprintf
-#include "pci.h" // foreachpci
-#include "pci_regs.h" // PCI_ROM_ADDRESS
-#include "pci_ids.h" // PCI_CLASS_DISPLAY_VGA
-#include "boot.h" // IPL
-#include "optionroms.h" // struct rom_header
+#include "farptr.h" // FLATPTR_TO_SEG
+#include "hw/pci.h" // foreachpci
+#include "hw/pci_ids.h" // PCI_CLASS_DISPLAY_VGA
+#include "hw/pci_regs.h" // PCI_ROM_ADDRESS
+#include "malloc.h" // rom_confirm
+#include "output.h" // dprintf
+#include "romfile.h" // romfile_loadint
+#include "stacks.h" // farcall16big
+#include "std/optionrom.h" // struct rom_header
+#include "std/pnpbios.h" // PNP_SIGNATURE
+#include "string.h" // memset
+#include "util.h" // get_pnp_offset
 
 
 /****************************************************************
@@ -39,8 +44,6 @@ __callrom(struct rom_header *rom, u16 offset, u16 bdf)
     start_preempt();
     farcall16big(&br);
     finish_preempt();
-
-    debug_serial_preinit();
 }
 
 // Execute a given option rom at the standard entry vector.

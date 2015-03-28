@@ -6,12 +6,13 @@
 //
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
-#include "vgabios.h" // handle_104f
-#include "config.h" // CONFIG_*
-#include "bregs.h" // struct bregs
-#include "vbe.h" // struct vbe_info
-#include "util.h" // dprintf
 #include "biosvar.h" // GET_GLOBAL
+#include "bregs.h" // struct bregs
+#include "config.h" // CONFIG_*
+#include "output.h" // dprintf
+#include "std/vbe.h" // struct vbe_info
+#include "string.h" // memset_far
+#include "vgabios.h" // handle_104f
 #include "vgahw.h" // vgahw_set_mode
 
 u32 VBE_total_memory VAR16 = 256 * 1024;
@@ -144,6 +145,10 @@ vbe_104f01(struct bregs *regs)
             mode_attr |= VBE_MODE_ATTRIBUTE_LINEAR_FRAME_BUFFER_MODE;
         break;
     }
+    if (pages > 128)
+        pages = 128;
+    if (pages < 2)
+        pages++;
     SET_FARVAR(seg, info->mode_attributes, mode_attr);
     SET_FARVAR(seg, info->planes, planes);
     SET_FARVAR(seg, info->pages, pages - 1);
@@ -212,7 +217,7 @@ vbe_104f02(struct bregs *regs)
 static void
 vbe_104f03(struct bregs *regs)
 {
-    regs->bx = GET_BDA(vbe_mode);
+    regs->bx = GET_BDA_EXT(vbe_mode);
     dprintf(1, "VBE current mode=%x\n", regs->bx);
     regs->ax = 0x004f;
 }
@@ -223,29 +228,14 @@ vbe_104f04(struct bregs *regs)
     u16 seg = regs->es;
     void *data = (void*)(regs->bx+0);
     u16 states = regs->cx;
-    if (states & ~0x0f)
+    u8 cmd = regs->dl;
+    if (states & ~0x0f || cmd > 2)
         goto fail;
-    int ret;
-    switch (regs->dl) {
-    case 0x00:
-        ret = vgahw_size_state(states);
-        if (ret < 0)
-            goto fail;
+    int ret = vgahw_save_restore(states | (cmd<<8), seg, data);
+    if (ret < 0)
+        goto fail;
+    if (cmd == 0)
         regs->bx = ret / 64;
-        break;
-    case 0x01:
-        ret = vgahw_save_state(seg, data, states);
-        if (ret)
-            goto fail;
-        break;
-    case 0x02:
-        ret = vgahw_restore_state(seg, data, states);
-        if (ret)
-            goto fail;
-        break;
-    default:
-        goto fail;
-    }
     regs->ax = 0x004f;
     return;
 fail:
@@ -257,7 +247,7 @@ vbe_104f05(struct bregs *regs)
 {
     if (regs->bh > 1 || regs->bl > 1)
         goto fail;
-    if (GET_BDA(vbe_mode) & MF_LINEARFB) {
+    if (GET_BDA_EXT(vbe_mode) & MF_LINEARFB) {
         regs->ah = VBE_RETURN_STATUS_INVALID;
         return;
     }
@@ -392,10 +382,10 @@ vbe_104f10(struct bregs *regs)
         regs->bx = 0x0f30;
         break;
     case 0x01:
-        SET_BDA(vbe_flag, regs->bh);
+        MASK_BDA_EXT(flags, BF_PM_MASK, regs->bh & BF_PM_MASK);
         break;
     case 0x02:
-        regs->bh = GET_BDA(vbe_flag);
+        regs->bh = GET_BDA_EXT(flags) & BF_PM_MASK;
         break;
     default:
         regs->ax = 0x014f;

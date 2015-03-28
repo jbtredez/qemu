@@ -15,8 +15,7 @@
 #include "hw/irq.h"
 
 /* armv7m.c */
-qemu_irq *armv7m_init(MemoryRegion *address_space_mem,
-                      int flash_size, int sram_size,
+qemu_irq *armv7m_init(MemoryRegion *system_memory, int mem_size, int num_irq,
                       const char *kernel_filename, const char *cpu_model);
 
 /* arm_boot.c */
@@ -37,6 +36,10 @@ struct arm_boot_info {
     hwaddr gic_cpu_if_addr;
     int nb_cpus;
     int board_id;
+    /* ARM machines that support the ARM Security Extensions use this field to
+     * control whether Linux is booted as secure(true) or non-secure(false).
+     */
+    bool secure_boot;
     int (*atag_board)(const struct arm_boot_info *info, void *p);
     /* multicore boards that use the default secondary core boot functions
      * can ignore these two function calls. If the default functions won't
@@ -50,6 +53,13 @@ struct arm_boot_info {
                                  const struct arm_boot_info *info);
     void (*secondary_cpu_reset_hook)(ARMCPU *cpu,
                                      const struct arm_boot_info *info);
+    /* if a board is able to create a dtb without a dtb file then it
+     * sets get_dtb. This will only be used if no dtb file is provided
+     * by the user. On success, sets *size to the length of the created
+     * dtb, and returns a pointer to it. (The caller must free this memory
+     * with g_free() when it has finished with it.) On failure, returns NULL.
+     */
+    void *(*get_dtb)(const struct arm_boot_info *info, int *size);
     /* if a board needs to be able to modify a device tree provided by
      * the user it should implement this hook.
      */
@@ -59,6 +69,11 @@ struct arm_boot_info {
     hwaddr initrd_start;
     hwaddr initrd_size;
     hwaddr entry;
+
+    /* Boot firmware has been loaded, typically at address 0, with -bios or
+     * -pflash. It also implies that fw_cfg_find() will succeed.
+     */
+    bool firmware_loaded;
 };
 void arm_load_kernel(ARMCPU *cpu, struct arm_boot_info *info);
 

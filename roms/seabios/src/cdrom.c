@@ -5,12 +5,16 @@
 //
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
-#include "disk.h" // cdrom_13
-#include "util.h" // memset
-#include "bregs.h" // struct bregs
 #include "biosvar.h" // GET_GLOBAL
-#include "ata.h" // ATA_CMD_REQUEST_SENSE
-#include "blockcmd.h" // CDB_CMD_REQUEST_SENSE
+#include "block.h" // struct drive_s
+#include "bregs.h" // struct bregs
+#include "hw/ata.h" // ATA_CMD_REQUEST_SENSE
+#include "hw/blockcmd.h" // CDB_CMD_REQUEST_SENSE
+#include "malloc.h" // free
+#include "output.h" // dprintf
+#include "std/disk.h" // DISK_RET_SUCCESS
+#include "string.h" // memset
+#include "util.h" // cdrom_prepboot
 
 // Locks for removable devices
 u8 CDRom_locks[BUILD_MAX_EXTDRIVE] VARLOW;
@@ -20,16 +24,16 @@ u8 CDRom_locks[BUILD_MAX_EXTDRIVE] VARLOW;
  * CD emulation
  ****************************************************************/
 
-struct cdemu_s CDEmu VARLOW;
+struct eltorito_s CDEmu VARLOW = { .size=sizeof(CDEmu) };
+struct drive_s *emulated_drive_gf VARLOW;
 struct drive_s *cdemu_drive_gf VARFSEG;
 
 static int
 cdemu_read(struct disk_op_s *op)
 {
-    struct drive_s *drive_g;
-    drive_g = GLOBALFLAT2GLOBAL(GET_LOW(CDEmu.emulated_drive_gf));
+    struct drive_s *drive_gf = GET_LOW(emulated_drive_gf);
     struct disk_op_s dop;
-    dop.drive_g = drive_g;
+    dop.drive_gf = drive_gf;
     dop.command = op->command;
     dop.lba = GET_LOW(CDEmu.ilba) + op->lba / 4;
 
@@ -101,7 +105,6 @@ process_cdemu_op(struct disk_op_s *op)
     case CMD_ISREADY:
         return DISK_RET_SUCCESS;
     default:
-        op->count = 0;
         return DISK_RET_EPARAM;
     }
 }
@@ -116,68 +119,17 @@ cdrom_prepboot(void)
     if (create_bounce_buf() < 0)
         return;
 
-    struct drive_s *drive_g = malloc_fseg(sizeof(*drive_g));
-    if (!drive_g) {
+    struct drive_s *drive = malloc_fseg(sizeof(*drive));
+    if (!drive) {
         warn_noalloc();
-        free(drive_g);
+        free(drive);
         return;
     }
-    cdemu_drive_gf = drive_g;
-    memset(drive_g, 0, sizeof(*drive_g));
-    drive_g->type = DTYPE_CDEMU;
-    drive_g->blksize = DISK_SECTOR_SIZE;
-    drive_g->sectors = (u64)-1;
-}
-
-struct eltorito_s {
-    u8 size;
-    u8 media;
-    u8 emulated_drive;
-    u8 controller_index;
-    u32 ilba;
-    u16 device_spec;
-    u16 buffer_segment;
-    u16 load_segment;
-    u16 sector_count;
-    u8 cylinders;
-    u8 sectors;
-    u8 heads;
-};
-
-#define SET_INT13ET(regs,var,val)                                      \
-    SET_FARVAR((regs)->ds, ((struct eltorito_s*)((regs)->si+0))->var, (val))
-
-// ElTorito - Terminate disk emu
-void
-cdemu_134b(struct bregs *regs)
-{
-    // FIXME ElTorito Hardcoded
-    SET_INT13ET(regs, size, 0x13);
-    SET_INT13ET(regs, media, GET_LOW(CDEmu.media));
-    SET_INT13ET(regs, emulated_drive, GET_LOW(CDEmu.emulated_extdrive));
-    struct drive_s *drive_gf = GET_LOW(CDEmu.emulated_drive_gf);
-    u8 cntl_id = 0;
-    if (drive_gf)
-        cntl_id = GET_GLOBALFLAT(drive_gf->cntl_id);
-    SET_INT13ET(regs, controller_index, cntl_id / 2);
-    SET_INT13ET(regs, device_spec, cntl_id % 2);
-    SET_INT13ET(regs, ilba, GET_LOW(CDEmu.ilba));
-    SET_INT13ET(regs, buffer_segment, GET_LOW(CDEmu.buffer_segment));
-    SET_INT13ET(regs, load_segment, GET_LOW(CDEmu.load_segment));
-    SET_INT13ET(regs, sector_count, GET_LOW(CDEmu.sector_count));
-    SET_INT13ET(regs, cylinders, GET_LOW(CDEmu.lchs.cylinders));
-    SET_INT13ET(regs, sectors, GET_LOW(CDEmu.lchs.spt));
-    SET_INT13ET(regs, heads, GET_LOW(CDEmu.lchs.heads));
-
-    // If we have to terminate emulation
-    if (regs->al == 0x00) {
-        // FIXME ElTorito Various. Should be handled accordingly to spec
-        SET_LOW(CDEmu.active, 0x00); // bye bye
-
-        // XXX - update floppy/hd count.
-    }
-
-    disk_ret(regs, DISK_RET_SUCCESS);
+    cdemu_drive_gf = drive;
+    memset(drive, 0, sizeof(*drive));
+    drive->type = DTYPE_CDEMU;
+    drive->blksize = DISK_SECTOR_SIZE;
+    drive->sectors = (u64)-1;
 }
 
 
@@ -186,14 +138,14 @@ cdemu_134b(struct bregs *regs)
  ****************************************************************/
 
 int
-cdrom_boot(struct drive_s *drive_g)
+cdrom_boot(struct drive_s *drive)
 {
     ASSERT32FLAT();
     struct disk_op_s dop;
-    int cdid = getDriveId(EXTTYPE_CD, drive_g);
+    int cdid = getDriveId(EXTTYPE_CD, drive);
     memset(&dop, 0, sizeof(dop));
-    dop.drive_g = drive_g;
-    if (!dop.drive_g || cdid < 0)
+    dop.drive_gf = drive;
+    if (!dop.drive_gf || cdid < 0)
         return 1;
 
     int ret = scsi_is_ready(&dop);
@@ -202,10 +154,11 @@ cdrom_boot(struct drive_s *drive_g)
 
     // Read the Boot Record Volume Descriptor
     u8 buffer[CDROM_SECTOR_SIZE];
+    dop.command = CMD_READ;
     dop.lba = 0x11;
     dop.count = 1;
     dop.buf_fl = buffer;
-    ret = cdb_read(&dop);
+    ret = scsi_process_op(&dop);
     if (ret)
         return 3;
 
@@ -221,7 +174,7 @@ cdrom_boot(struct drive_s *drive_g)
     // And we read the Boot Catalog
     dop.lba = lba;
     dop.count = 1;
-    ret = cdb_read(&dop);
+    ret = scsi_process_op(&dop);
     if (ret)
         return 7;
 
@@ -239,10 +192,9 @@ cdrom_boot(struct drive_s *drive_g)
     if (buffer[0x20] != 0x88)
         return 11; // Bootable
 
+    // Fill in el-torito cdrom emulation fields.
+    emulated_drive_gf = drive;
     u8 media = buffer[0x21];
-    CDEmu.media = media;
-
-    CDEmu.emulated_drive_gf = dop.drive_g;
 
     u16 boot_segment = *(u16*)&buffer[0x22];
     if (!boot_segment)
@@ -256,17 +208,29 @@ cdrom_boot(struct drive_s *drive_g)
     lba = *(u32*)&buffer[0x28];
     CDEmu.ilba = lba;
 
+    CDEmu.controller_index = drive->cntl_id / 2;
+    CDEmu.device_spec = drive->cntl_id % 2;
+
     // And we read the image in memory
+    nbsectors = DIV_ROUND_UP(nbsectors, 4);
     dop.lba = lba;
-    dop.count = DIV_ROUND_UP(nbsectors, 4);
     dop.buf_fl = MAKE_FLATPTR(boot_segment, 0);
-    ret = cdb_read(&dop);
-    if (ret)
-        return 12;
+    while (nbsectors) {
+        int count = nbsectors;
+        if (count > 64*1024/CDROM_SECTOR_SIZE)
+            count = 64*1024/CDROM_SECTOR_SIZE;
+        dop.count = count;
+        ret = scsi_process_op(&dop);
+        if (ret)
+            return 12;
+        nbsectors -= count;
+        dop.lba += count;
+        dop.buf_fl += count*CDROM_SECTOR_SIZE;
+    }
 
     if (media == 0) {
         // No emulation requested - return success.
-        CDEmu.emulated_extdrive = EXTSTART_CD + cdid;
+        CDEmu.emulated_drive = EXTSTART_CD + cdid;
         return 0;
     }
 
@@ -278,45 +242,39 @@ cdrom_boot(struct drive_s *drive_g)
     // number of devices
     if (media < 4) {
         // Floppy emulation
-        CDEmu.emulated_extdrive = 0x00;
+        CDEmu.emulated_drive = 0x00;
         // XXX - get and set actual floppy count.
         set_equipment_flags(0x41, 0x41);
 
         switch (media) {
         case 0x01:  // 1.2M floppy
-            CDEmu.lchs.spt = 15;
-            CDEmu.lchs.cylinders = 80;
-            CDEmu.lchs.heads = 2;
+            CDEmu.chs.sptcyl = 15;
+            CDEmu.chs.cyllow = 79;
+            CDEmu.chs.heads = 1;
             break;
         case 0x02:  // 1.44M floppy
-            CDEmu.lchs.spt = 18;
-            CDEmu.lchs.cylinders = 80;
-            CDEmu.lchs.heads = 2;
+            CDEmu.chs.sptcyl = 18;
+            CDEmu.chs.cyllow = 79;
+            CDEmu.chs.heads = 1;
             break;
         case 0x03:  // 2.88M floppy
-            CDEmu.lchs.spt = 36;
-            CDEmu.lchs.cylinders = 80;
-            CDEmu.lchs.heads = 2;
+            CDEmu.chs.sptcyl = 36;
+            CDEmu.chs.cyllow = 79;
+            CDEmu.chs.heads = 1;
             break;
         }
     } else {
         // Harddrive emulation
-        CDEmu.emulated_extdrive = 0x80;
+        CDEmu.emulated_drive = 0x80;
         SET_BDA(hdcount, GET_BDA(hdcount) + 1);
 
         // Peak at partition table to get chs.
-        struct mbr_s *mbr = (void*)0;
-        u8 sptcyl = GET_FARVAR(boot_segment, mbr->partitions[0].last.sptcyl);
-        u8 cyllow = GET_FARVAR(boot_segment, mbr->partitions[0].last.cyllow);
-        u8 heads = GET_FARVAR(boot_segment, mbr->partitions[0].last.heads);
-
-        CDEmu.lchs.spt = sptcyl & 0x3f;
-        CDEmu.lchs.cylinders = ((sptcyl<<2)&0x300) + cyllow + 1;
-        CDEmu.lchs.heads = heads + 1;
+        struct mbr_s *mbr = MAKE_FLATPTR(boot_segment, 0);
+        CDEmu.chs = mbr->partitions[0].last;
     }
 
     // everything is ok, so from now on, the emulation is active
-    CDEmu.active = 0x01;
+    CDEmu.media = media;
     dprintf(6, "cdemu media=%d\n", media);
 
     return 0;

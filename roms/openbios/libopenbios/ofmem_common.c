@@ -428,27 +428,28 @@ static ucell find_area( ucell align, ucell size, range_t *r,
 {
 	phys_addr_t base = min;
 	range_t *r2;
-	ucell old_align;
+	ucell old_align = align;
 	int i;
+
+	if( (align < PAGE_SIZE) ) {
+		
+		/* Minimum alignment is page size */
+		align = PAGE_SIZE;
+		
+		OFMEM_TRACE("warning: bad alignment " FMT_ucellx " rounded up to " FMT_ucellx "\n", old_align, align);
+	}
 
 	if( (align & (align-1)) ) {
 	
 		/* As per IEEE1275 specification, round up to the nearest power of 2 */
-		old_align = align;
-		if (old_align <= PAGE_SIZE) {
-			align = PAGE_SIZE;
-		} else {
-			align--;
-			for (i = 1; i < sizeof(ucell) * 8; i<<=1) {
-				align |= align >> i;
-			}
-			align++;
+		align--;
+		for (i = 1; i < sizeof(ucell) * 8; i<<=1) {
+			align |= align >> i;
 		}
+		align++;
 		
 		OFMEM_TRACE("warning: bad alignment " FMT_ucellx " rounded up to " FMT_ucellx "\n", old_align, align);
 	}
-	if( !align )
-		align = PAGE_SIZE;
 
 	base = reverse ? max - size : min;
 	r2 = reverse ? NULL : r;
@@ -516,7 +517,7 @@ static phys_addr_t ofmem_claim_phys_( phys_addr_t phys, ucell size, ucell align,
 /* if align != 0, phys is ignored. Returns -1 on error */
 phys_addr_t ofmem_claim_phys( phys_addr_t phys, ucell size, ucell align )
 {
-    OFMEM_TRACE("ofmem_claim phys=" FMT_plx " size=" FMT_ucellx
+    OFMEM_TRACE("ofmem_claim_phys phys=" FMT_plx " size=" FMT_ucellx
                 " align=" FMT_ucellx "\n",
                 phys, size, align);
 
@@ -599,7 +600,7 @@ phys_addr_t ofmem_retain( phys_addr_t phys, ucell size, ucell align )
                 " align=" FMT_ucellx "\n",
                 phys, size, align);
 
-	retain_phys = ofmem_claim_phys_( phys, size, align, 0, get_ram_size(), 0 );
+	retain_phys = ofmem_claim_phys_( phys, size, align, 0, get_ram_size(), 1 /* reverse */ );
 
 	/* Add to the retain_phys_range list */
 	retained->retain_phys_range[retained->numentries].next = NULL;
@@ -616,7 +617,7 @@ ucell ofmem_claim( ucell addr, ucell size, ucell align )
 	ofmem_t *ofmem = ofmem_arch_get_private();
 	ucell virt;
 	phys_addr_t phys;
-	ucell offs = addr & 0xfff;
+	ucell offs = addr & (PAGE_SIZE - 1);
 
 	OFMEM_TRACE("ofmem_claim " FMT_ucellx " " FMT_ucellx " " FMT_ucellx "\n", addr, size, align );
 	virt = phys = 0;
@@ -631,10 +632,10 @@ ucell ofmem_claim( ucell addr, ucell size, ucell align )
 			return -1;
 		}
 	} else {
-		if( align < 0x1000 )
-			align = 0x1000;
-		phys = ofmem_claim_phys_( addr, size, align, 0, ofmem_arch_get_phys_top(), 1 /* reverse */ );
-		virt = ofmem_claim_virt_( addr, size, align, 0, get_ram_size(), 1 /* reverse */ );
+		if( align < PAGE_SIZE )
+			align = PAGE_SIZE;
+		phys = ofmem_claim_phys_( -1, size, align, 0, ofmem_arch_get_phys_top(), 1 /* reverse */ );
+		virt = ofmem_claim_virt_( phys, size, 0, 0, 0, 0 );
 		if( phys == -1 || virt == -1 ) {
 			OFMEM_TRACE("ofmem_claim failed\n");
 			return -1;
@@ -643,13 +644,13 @@ ucell ofmem_claim( ucell addr, ucell size, ucell align )
 	}
 
 	/* align */
-	if( phys & 0xfff ) {
-		size += (phys & 0xfff);
-		virt -= (phys & 0xfff);
-		phys &= ~0xfff;
+	if( phys & (PAGE_SIZE - 1) ) {
+		size += (phys & (PAGE_SIZE - 1));
+		virt -= (phys & (PAGE_SIZE - 1));
+		phys &= PAGE_MASK;
 	}
-	if( size & 0xfff )
-		size = (size + 0xfff) & ~0xfff;
+	if( size & (PAGE_SIZE - 1) )
+		size = (size + (PAGE_SIZE - 1)) & PAGE_MASK;
 
 	/* printk("...free memory found... phys: %08lX, virt: %08lX, size %lX\n", phys, virt, size ); */
 	ofmem_map( phys, virt, size, -1 );
@@ -783,15 +784,15 @@ int ofmem_map( phys_addr_t phys, ucell virt, ucell size, ucell mode )
 	/* printk("+ofmem_map: %08lX --> %08lX (size %08lX, mode 0x%02X)\n",
 	   virt, phys, size, mode ); */
 
-	if( (phys & 0xfff) || (virt & 0xfff) || (size & 0xfff) ) {
+	if( (phys & (PAGE_SIZE - 1)) || (virt & (PAGE_SIZE - 1)) || (size & (PAGE_SIZE - 1)) ) {
 
 		OFMEM_TRACE("ofmem_map: Bad parameters ("
-				FMT_plx " " FMT_ucellX " " FMT_ucellX ")\n",
+				FMT_plx " " FMT_ucellx " " FMT_ucellx ")\n",
 				phys, virt, size );
 
-		phys &= ~0xfff;
-		virt &= ~0xfff;
-		size = (size + 0xfff) & ~0xfff;
+		phys &= PAGE_MASK;
+		virt &= PAGE_MASK;
+		size = (size + (PAGE_SIZE - 1)) & PAGE_MASK;
 	}
 
 #if defined(OFMEM_FILL_RANGE)
@@ -822,11 +823,11 @@ int ofmem_unmap( ucell virt, ucell size )
 	OFMEM_TRACE("ofmem_unmap " FMT_ucellx " " FMT_ucellx "\n",
 			virt, size );
 
-	if( (virt & 0xfff) || (size & 0xfff) ) {
+	if( (virt & (PAGE_SIZE - 1)) || (size & (PAGE_SIZE - 1)) ) {
 		/* printk("ofmem_unmap: Bad parameters (%08lX %08lX)\n",
 				virt, size ); */
-		virt &= ~0xfff;
-		size = (size + 0xfff) & ~0xfff;
+		virt &= PAGE_MASK;
+		size = (size + (PAGE_SIZE - 1)) & PAGE_MASK;
 	}
 
 	/* remove translations and unmap pages */
@@ -880,23 +881,37 @@ phys_addr_t ofmem_translate( ucell virt, ucell *mode )
 
 static void remove_range_( phys_addr_t ea, ucell size, range_t **r )
 {
-	range_t *cr;
+	range_t **t, *u;
 
-	/* Handle special case if we're removing the first entry */
-	if ((**r).start >= ea) {
-		cr = *r;
-		*r = (**r).next;
-		free(cr);
+	/* If not an exact match then split the range */
+	for (t = r; *t; t = &(**t).next) {
+		if (ea > (**t).start && ea < (**t).start + (**t).size - 1) {
+			u = (range_t*)malloc(sizeof(range_t));
+			u->start = ea;
+			u->size = size;
+			u->next = (**t).next;
 
-		return;
+			OFMEM_TRACE("remove_range_ splitting range with addr=" FMT_plx
+					" size=" FMT_ucellx " -> addr=" FMT_plx " size=" FMT_ucellx ", "
+					"addr=" FMT_plx " size=" FMT_ucellx "\n",
+					(**t).start, (**t).size, (**t).start, (**t).size - size,
+					u->start, u->size);
+
+			(**t).size = (**t).size - size;
+			(**t).next = u;
+		}
 	}
 
-	for( ; *r && ((**r).next)->start < ea; r=&(**r).next ) {
+	for (t = r; *t; t = &(**t).next) {
+		if (ea >= (**t).start && ea + size <= (**t).start + (**t).size) {
+			OFMEM_TRACE("remove_range_ freeing range with addr=" FMT_plx
+					" size=" FMT_ucellx "\n", (**t).start, (**t).size);
+			u = *t;
+			*t = (**t).next;
+			free(u);
+			break;
+		}
 	}
-
-	cr = (**r).next;
-	(**r).next = cr->next;
-	free(cr);
 }
 
 static int remove_range( phys_addr_t ea, ucell size, range_t **r )

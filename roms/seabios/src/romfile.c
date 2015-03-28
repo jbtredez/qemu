@@ -5,7 +5,10 @@
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
 #include "config.h" // CONFIG_*
-#include "util.h" // dprintf
+#include "malloc.h" // free
+#include "output.h" // dprintf
+#include "romfile.h" // struct romfile_s
+#include "string.h" // memcmp
 
 static struct romfile_s *RomfileRoot VARVERIFY32INIT;
 
@@ -76,7 +79,7 @@ romfile_loadfile(const char *name, int *psize)
 }
 
 // Attempt to load an integer from the given file - return 'defval'
-// if unsuccesful.
+// if unsuccessful.
 u64
 romfile_loadint(const char *name, u64 defval)
 {

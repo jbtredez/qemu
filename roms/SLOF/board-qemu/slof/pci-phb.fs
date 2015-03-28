@@ -131,6 +131,11 @@ setup-puid
    2drop
    bm-handle 0= IF
        dma-window-base dma-window-size 1000 bm-allocator-init to bm-handle
+       \ Sometimes the window-base appears as zero, that does not
+       \ go well with NULL pointers. So block this address
+       dma-window-base 0= IF
+          bm-handle 1000 bm-alloc drop
+       THEN
    THEN
 ;
 
@@ -278,6 +283,7 @@ setup-puid
    puid >r                          \ Save old value of puid
    my-puid TO puid                  \ Set current puid
    phb-parse-ranges
+   1 TO pci-hotplug-enabled
    1 0 (probe-pci-host-bridge)
    r> TO puid                       \ Restore previous puid
 ;

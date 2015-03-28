@@ -23,6 +23,7 @@
 #include <stdarg.h>
 #include <sys/types.h>
 #include "qapi/qmp/qdict.h"
+#include "glib-compat.h"
 
 typedef struct QTestState QTestState;
 
@@ -81,6 +82,14 @@ void qtest_qmpv_discard_response(QTestState *s, const char *fmt, va_list ap);
  * Sends a QMP message to QEMU and returns the response.
  */
 QDict *qtest_qmpv(QTestState *s, const char *fmt, va_list ap);
+
+/**
+ * qtest_receive:
+ * @s: #QTestState instance to operate on.
+ *
+ * Reads a QMP message from QEMU and returns the response.
+ */
+QDict *qtest_qmp_receive(QTestState *s);
 
 /**
  * qtest_get_irq:
@@ -275,6 +284,17 @@ void qtest_memread(QTestState *s, uint64_t addr, void *data, size_t size);
 void qtest_memwrite(QTestState *s, uint64_t addr, const void *data, size_t size);
 
 /**
+ * qtest_memset:
+ * @s: #QTestState instance to operate on.
+ * @addr: Guest address to write to.
+ * @patt: Byte pattern to fill the guest memory region with.
+ * @size: Number of bytes to write.
+ *
+ * Write a pattern to guest memory.
+ */
+void qtest_memset(QTestState *s, uint64_t addr, uint8_t patt, size_t size);
+
+/**
  * qtest_clock_step_next:
  * @s: #QTestState instance to operate on.
  *
@@ -356,16 +376,7 @@ static inline void qtest_end(void)
  *
  * Sends a QMP message to QEMU and returns the response.
  */
-static inline QDict *qmp(const char *fmt, ...)
-{
-    va_list ap;
-    QDict *response;
-
-    va_start(ap, fmt);
-    response = qtest_qmpv(global_qtest, fmt, ap);
-    va_end(ap);
-    return response;
-}
+QDict *qmp(const char *fmt, ...);
 
 /**
  * qmp_discard_response:
@@ -373,13 +384,16 @@ static inline QDict *qmp(const char *fmt, ...)
  *
  * Sends a QMP message to QEMU and consumes the response.
  */
-static inline void qmp_discard_response(const char *fmt, ...)
-{
-    va_list ap;
+void qmp_discard_response(const char *fmt, ...);
 
-    va_start(ap, fmt);
-    qtest_qmpv_discard_response(global_qtest, fmt, ap);
-    va_end(ap);
+/**
+ * qmp_receive:
+ *
+ * Reads a QMP message from QEMU and returns the response.
+ */
+static inline QDict *qmp_receive(void)
+{
+    return qtest_qmp_receive(global_qtest);
 }
 
 /**
@@ -619,6 +633,19 @@ static inline void memwrite(uint64_t addr, const void *data, size_t size)
 }
 
 /**
+ * qmemset:
+ * @addr: Guest address to write to.
+ * @patt: Byte pattern to fill the guest memory region with.
+ * @size: Number of bytes to write.
+ *
+ * Write a pattern to guest memory.
+ */
+static inline void qmemset(uint64_t addr, uint8_t patt, size_t size)
+{
+    qtest_memset(global_qtest, addr, patt, size);
+}
+
+/**
  * clock_step_next:
  *
  * Advance the QEMU_CLOCK_VIRTUAL to the next deadline.
@@ -655,5 +682,12 @@ static inline int64_t clock_set(int64_t val)
 {
     return qtest_clock_set(global_qtest, val);
 }
+
+/**
+ * qtest_big_endian:
+ *
+ * Returns: True if the architecture under test has a big endian configuration.
+ */
+bool qtest_big_endian(void);
 
 #endif

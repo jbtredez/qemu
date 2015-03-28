@@ -138,6 +138,8 @@ ping(int argc, char *argv[])
 		return -101;
 	}
 
+	fn_ip.fd = fd_device;
+
 	printf("%02x:%02x:%02x:%02x:%02x:%02x\n",
 	       own_mac[0], own_mac[1], own_mac[2],
 	       own_mac[3], own_mac[4], own_mac[5]);
@@ -152,7 +154,7 @@ ping(int argc, char *argv[])
 	if (!ping_args.client_ip.integer) {
 		/* Get ip address for our mac address */
 		printf("  Requesting IP address via DHCP: ");
-		arp_failed = dhcp(0, &fn_ip, 30);
+		arp_failed = dhcp(0, &fn_ip, 30, F_IPV4);
 
 		if (arp_failed == -1) {
 			printf("\n  DHCP: Could not get ip address\n");
@@ -178,11 +180,11 @@ ping(int argc, char *argv[])
 	       ((fn_ip.server_ip >> 8) & 0xFF), (fn_ip.server_ip & 0xFF));
 
 
-	ping_ipv4(fn_ip.server_ip);
+	ping_ipv4(fd_device, fn_ip.server_ip);
 
 	set_timer(TICKS_SEC / 10 * ping_args.timeout);
 	while(get_timer() > 0) {
-		receive_ether();
+		receive_ether(fd_device);
 		if(pong_ipv4() == 0) {
 			printf("success\n");
 			return 0;

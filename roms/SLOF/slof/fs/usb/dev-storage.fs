@@ -21,7 +21,7 @@ s" slofdev.fs" included
 false VALUE usb-disk-debug?
 
 usbdev slof-dev>port l@ dup set-unit encode-phys " reg" property
-s" usb-storage" device-name
+s" storage" device-name
 
 s" dev-parent-calls.fs" included
 
@@ -339,6 +339,7 @@ scsi-close        \ no further scsi words required
    CASE
       1 OF 4000 TO dev-max-transfer ENDOF \ OHCI
       2 OF 10000 TO dev-max-transfer ENDOF \ EHCI
+      3 OF F000 TO dev-max-transfer ENDOF \ XHCI
    ENDCASE
    usb-storage-init
    scsi-find-disks

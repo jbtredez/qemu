@@ -5,12 +5,14 @@
 //
 // This file may be distributed under the terms of the GNU LGPLv3 license.
 
-#include "types.h" // u32
-#include "util.h" // handle_1ab1
-#include "pci.h" // pci_config_readl
-#include "bregs.h" // struct bregs
 #include "biosvar.h" // GET_GLOBAL
-#include "pci_regs.h" // PCI_VENDOR_ID
+#include "bregs.h" // struct bregs
+#include "hw/pci.h" // pci_config_readl
+#include "hw/pci_regs.h" // PCI_VENDOR_ID
+#include "output.h" // dprintf
+#include "std/pirtable.h" // struct pir_header
+#include "string.h" // checksum
+#include "util.h" // handle_1ab1
 
 // romlayout.S
 extern void entry_bios32(void);

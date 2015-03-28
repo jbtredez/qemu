@@ -95,7 +95,7 @@ static struct {
         }
     },
 
-    .period = { .hertz = 250 },
+    .period = { .hertz = 100 },
     .plive = 0,
     .log_to_monitor = 0,
     .try_poll_in = 1,
@@ -1812,8 +1812,7 @@ static const VMStateDescription vmstate_audio = {
     .name = "audio",
     .version_id = 1,
     .minimum_version_id = 1,
-    .minimum_version_id_old = 1,
-    .fields      = (VMStateField []) {
+    .fields = (VMStateField[]) {
         VMSTATE_END_OF_LIST()
     }
 };

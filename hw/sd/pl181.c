@@ -7,6 +7,7 @@
  * This code is licensed under the GPL.
  */
 
+#include "sysemu/block-backend.h"
 #include "sysemu/blockdev.h"
 #include "hw/sysbus.h"
 #include "hw/sd.h"
@@ -490,7 +491,7 @@ static int pl181_init(SysBusDevice *sbd)
     sysbus_init_irq(sbd, &s->irq[1]);
     qdev_init_gpio_out(dev, s->cardstatus, 2);
     dinfo = drive_get_next(IF_SD);
-    s->card = sd_init(dinfo ? dinfo->bdrv : NULL, false);
+    s->card = sd_init(dinfo ? blk_by_legacy_dinfo(dinfo) : NULL, false);
     if (s->card == NULL) {
         return -1;
     }
@@ -506,7 +507,6 @@ static void pl181_class_init(ObjectClass *klass, void *data)
     sdc->init = pl181_init;
     k->vmsd = &vmstate_pl181;
     k->reset = pl181_reset;
-    k->no_user = 1;
 }
 
 static const TypeInfo pl181_info = {

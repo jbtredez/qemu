@@ -43,9 +43,11 @@
     (sizeof(PVSCSICmdDescSetupRings)/sizeof(uint32_t))
 
 #define RS_GET_FIELD(rs_pa, field) \
-    (ldl_le_phys(rs_pa + offsetof(struct PVSCSIRingsState, field)))
+    (ldl_le_phys(&address_space_memory, \
+                 rs_pa + offsetof(struct PVSCSIRingsState, field)))
 #define RS_SET_FIELD(rs_pa, field, val) \
-    (stl_le_phys(rs_pa + offsetof(struct PVSCSIRingsState, field), val))
+    (stl_le_phys(&address_space_memory, \
+                 rs_pa + offsetof(struct PVSCSIRingsState, field), val))
 
 #define TYPE_PVSCSI "pvscsi"
 #define PVSCSI(obj) OBJECT_CHECK(PVSCSIState, (obj), TYPE_PVSCSI)
@@ -477,12 +479,13 @@ static void
 pvscsi_command_complete(SCSIRequest *req, uint32_t status, size_t resid)
 {
     PVSCSIRequest *pvscsi_req = req->hba_private;
-    PVSCSIState *s = pvscsi_req->dev;
+    PVSCSIState *s;
 
     if (!pvscsi_req) {
         trace_pvscsi_command_complete_not_found(req->tag);
         return;
     }
+    s = pvscsi_req->dev;
 
     if (resid) {
         /* Short transfer.  */
@@ -521,17 +524,20 @@ pvscsi_send_msg(PVSCSIState *s, SCSIDevice *dev, uint32_t msg_type)
 }
 
 static void
-pvscsi_hotplug(SCSIBus *bus, SCSIDevice *dev)
+pvscsi_hotplug(HotplugHandler *hotplug_dev, DeviceState *dev, Error **errp)
 {
-    PVSCSIState *s = container_of(bus, PVSCSIState, bus);
-    pvscsi_send_msg(s, dev, PVSCSI_MSG_DEV_ADDED);
+    PVSCSIState *s = PVSCSI(hotplug_dev);
+
+    pvscsi_send_msg(s, SCSI_DEVICE(dev), PVSCSI_MSG_DEV_ADDED);
 }
 
 static void
-pvscsi_hot_unplug(SCSIBus *bus, SCSIDevice *dev)
+pvscsi_hot_unplug(HotplugHandler *hotplug_dev, DeviceState *dev, Error **errp)
 {
-    PVSCSIState *s = container_of(bus, PVSCSIState, bus);
-    pvscsi_send_msg(s, dev, PVSCSI_MSG_DEV_REMOVED);
+    PVSCSIState *s = PVSCSI(hotplug_dev);
+
+    pvscsi_send_msg(s, SCSI_DEVICE(dev), PVSCSI_MSG_DEV_REMOVED);
+    qdev_simple_device_unplug_cb(hotplug_dev, dev, errp);
 }
 
 static void
@@ -1054,8 +1060,6 @@ static const struct SCSIBusInfo pvscsi_scsi_info = {
         .get_sg_list = pvscsi_get_sg_list,
         .complete = pvscsi_command_complete,
         .cancel = pvscsi_request_cancelled,
-        .hotplug = pvscsi_hotplug,
-        .hot_unplug = pvscsi_hot_unplug,
 };
 
 static int
@@ -1084,12 +1088,13 @@ pvscsi_init(PCIDevice *pci_dev)
     s->completion_worker = qemu_bh_new(pvscsi_process_completion_queue, s);
     if (!s->completion_worker) {
         pvscsi_cleanup_msi(s);
-        memory_region_destroy(&s->io_space);
         return -ENOMEM;
     }
 
     scsi_bus_new(&s->bus, sizeof(s->bus), DEVICE(pci_dev),
                  &pvscsi_scsi_info, NULL);
+    /* override default SCSI bus hotplug-handler, with pvscsi's one */
+    qbus_set_hotplug_handler(BUS(&s->bus), DEVICE(s), &error_abort);
     pvscsi_reset_state(s);
 
     return 0;
@@ -1104,8 +1109,6 @@ pvscsi_uninit(PCIDevice *pci_dev)
     qemu_bh_delete(s->completion_worker);
 
     pvscsi_cleanup_msi(s);
-
-    memory_region_destroy(&s->io_space);
 }
 
 static void
@@ -1140,10 +1143,9 @@ static const VMStateDescription vmstate_pvscsi = {
     .name = "pvscsi",
     .version_id = 0,
     .minimum_version_id = 0,
-    .minimum_version_id_old = 0,
     .pre_save = pvscsi_pre_save,
     .post_load = pvscsi_post_load,
-    .fields      = (VMStateField[]) {
+    .fields = (VMStateField[]) {
         VMSTATE_PCI_DEVICE(parent_obj, PVSCSIState),
         VMSTATE_UINT8(msi_used, PVSCSIState),
         VMSTATE_UINT32(resetting, PVSCSIState),
@@ -1188,6 +1190,7 @@ static void pvscsi_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     PCIDeviceClass *k = PCI_DEVICE_CLASS(klass);
+    HotplugHandlerClass *hc = HOTPLUG_HANDLER_CLASS(klass);
 
     k->init = pvscsi_init;
     k->exit = pvscsi_uninit;
@@ -1200,6 +1203,8 @@ static void pvscsi_class_init(ObjectClass *klass, void *data)
     dc->props = pvscsi_properties;
     set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
     k->config_write = pvscsi_write_config;
+    hc->unplug = pvscsi_hot_unplug;
+    hc->plug = pvscsi_hotplug;
 }
 
 static const TypeInfo pvscsi_info = {
@@ -1207,6 +1212,10 @@ static const TypeInfo pvscsi_info = {
     .parent        = TYPE_PCI_DEVICE,
     .instance_size = sizeof(PVSCSIState),
     .class_init    = pvscsi_class_init,
+    .interfaces = (InterfaceInfo[]) {
+        { TYPE_HOTPLUG_HANDLER },
+        { }
+    }
 };
 
 static void

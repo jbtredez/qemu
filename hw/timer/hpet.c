@@ -1,5 +1,5 @@
 /*
- *  High Precisition Event Timer emulation
+ *  High Precision Event Timer emulation
  *
  *  Copyright (c) 2007 Alexander Graf
  *  Copyright (c) 2008 IBM Corporation
@@ -42,7 +42,6 @@
 
 #define HPET_MSI_SUPPORT        0
 
-#define TYPE_HPET "hpet"
 #define HPET(obj) OBJECT_CHECK(HPETState, (obj), TYPE_HPET)
 
 struct HPETState;
@@ -73,6 +72,7 @@ typedef struct HPETState {
     uint8_t rtc_irq_level;
     qemu_irq pit_enabled;
     uint8_t num_timers;
+    uint32_t intcap;
     HPETTimer timer[HPET_MAX_TIMERS];
 
     /* Memory-mapped, software visible registers */
@@ -198,13 +198,24 @@ static void update_irq(struct HPETTimer *timer, int set)
     if (!set || !timer_enabled(timer) || !hpet_enabled(timer->state)) {
         s->isr &= ~mask;
         if (!timer_fsb_route(timer)) {
-            qemu_irq_lower(s->irqs[route]);
+            /* fold the ICH PIRQ# pin's internal inversion logic into hpet */
+            if (route >= ISA_NUM_IRQS) {
+                qemu_irq_raise(s->irqs[route]);
+            } else {
+                qemu_irq_lower(s->irqs[route]);
+            }
         }
     } else if (timer_fsb_route(timer)) {
-        stl_le_phys(timer->fsb >> 32, timer->fsb & 0xffffffff);
+        stl_le_phys(&address_space_memory,
+                    timer->fsb >> 32, timer->fsb & 0xffffffff);
     } else if (timer->config & HPET_TN_TYPE_LEVEL) {
         s->isr |= mask;
-        qemu_irq_raise(s->irqs[route]);
+        /* fold the ICH PIRQ# pin's internal inversion logic into hpet */
+        if (route >= ISA_NUM_IRQS) {
+            qemu_irq_lower(s->irqs[route]);
+        } else {
+            qemu_irq_raise(s->irqs[route]);
+        }
     } else {
         s->isr &= ~mask;
         qemu_irq_pulse(s->irqs[route]);
@@ -226,6 +237,18 @@ static int hpet_pre_load(void *opaque)
     /* version 1 only supports 3, later versions will load the actual value */
     s->num_timers = HPET_MIN_TIMERS;
     return 0;
+}
+
+static bool hpet_validate_num_timers(void *opaque, int version_id)
+{
+    HPETState *s = opaque;
+
+    if (s->num_timers < HPET_MIN_TIMERS) {
+        return false;
+    } else if (s->num_timers > HPET_MAX_TIMERS) {
+        return false;
+    }
+    return true;
 }
 
 static int hpet_post_load(void *opaque, int version_id)
@@ -259,8 +282,7 @@ static const VMStateDescription vmstate_hpet_rtc_irq_level = {
     .name = "hpet/rtc_irq_level",
     .version_id = 1,
     .minimum_version_id = 1,
-    .minimum_version_id_old = 1,
-    .fields      = (VMStateField[]) {
+    .fields = (VMStateField[]) {
         VMSTATE_UINT8(rtc_irq_level, HPETState),
         VMSTATE_END_OF_LIST()
     }
@@ -270,15 +292,14 @@ static const VMStateDescription vmstate_hpet_timer = {
     .name = "hpet_timer",
     .version_id = 1,
     .minimum_version_id = 1,
-    .minimum_version_id_old = 1,
-    .fields      = (VMStateField []) {
+    .fields = (VMStateField[]) {
         VMSTATE_UINT8(tn, HPETTimer),
         VMSTATE_UINT64(config, HPETTimer),
         VMSTATE_UINT64(cmp, HPETTimer),
         VMSTATE_UINT64(fsb, HPETTimer),
         VMSTATE_UINT64(period, HPETTimer),
         VMSTATE_UINT8(wrap_flag, HPETTimer),
-        VMSTATE_TIMER(qemu_timer, HPETTimer),
+        VMSTATE_TIMER_PTR(qemu_timer, HPETTimer),
         VMSTATE_END_OF_LIST()
     }
 };
@@ -287,15 +308,15 @@ static const VMStateDescription vmstate_hpet = {
     .name = "hpet",
     .version_id = 2,
     .minimum_version_id = 1,
-    .minimum_version_id_old = 1,
     .pre_save = hpet_pre_save,
     .pre_load = hpet_pre_load,
     .post_load = hpet_post_load,
-    .fields      = (VMStateField []) {
+    .fields = (VMStateField[]) {
         VMSTATE_UINT64(config, HPETState),
         VMSTATE_UINT64(isr, HPETState),
         VMSTATE_UINT64(hpet_counter, HPETState),
         VMSTATE_UINT8_V(num_timers, HPETState, 2),
+        VMSTATE_VALIDATE("num_timers in range", hpet_validate_num_timers),
         VMSTATE_STRUCT_VARRAY_UINT8(timer, HPETState, num_timers, 0,
                                     vmstate_hpet_timer, HPETTimer),
         VMSTATE_END_OF_LIST()
@@ -495,7 +516,8 @@ static void hpet_ram_write(void *opaque, hwaddr addr,
                 timer->cmp = (uint32_t)timer->cmp;
                 timer->period = (uint32_t)timer->period;
             }
-            if (activating_bit(old_val, new_val, HPET_TN_ENABLE)) {
+            if (activating_bit(old_val, new_val, HPET_TN_ENABLE) &&
+                hpet_enabled(s)) {
                 hpet_set_timer(timer);
             } else if (deactivating_bit(old_val, new_val, HPET_TN_ENABLE)) {
                 hpet_del_timer(timer);
@@ -653,8 +675,8 @@ static void hpet_reset(DeviceState *d)
         if (s->flags & (1 << HPET_MSI_SUPPORT)) {
             timer->config |= HPET_TN_FSB_CAP;
         }
-        /* advertise availability of ioapic inti2 */
-        timer->config |=  0x00000004ULL << 32;
+        /* advertise availability of ioapic int */
+        timer->config |=  (uint64_t)s->intcap << 32;
         timer->period = 0ULL;
         timer->wrap_flag = 0;
     }
@@ -703,6 +725,9 @@ static void hpet_realize(DeviceState *dev, Error **errp)
     int i;
     HPETTimer *timer;
 
+    if (!s->intcap) {
+        error_printf("Hpet's intcap not initialized.\n");
+    }
     if (hpet_cfg.count == UINT8_MAX) {
         /* first instance */
         hpet_cfg.count = 0;
@@ -743,6 +768,7 @@ static void hpet_realize(DeviceState *dev, Error **errp)
 static Property hpet_device_properties[] = {
     DEFINE_PROP_UINT8("timers", HPETState, num_timers, HPET_MIN_TIMERS),
     DEFINE_PROP_BIT("msi", HPETState, flags, HPET_MSI_SUPPORT, false),
+    DEFINE_PROP_UINT32(HPET_INTCAP, HPETState, intcap, 0),
     DEFINE_PROP_END_OF_LIST(),
 };
 
@@ -751,15 +777,9 @@ static void hpet_device_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->realize = hpet_realize;
-    dc->no_user = 1;
     dc->reset = hpet_reset;
     dc->vmsd = &vmstate_hpet;
     dc->props = hpet_device_properties;
-}
-
-bool hpet_find(void)
-{
-    return object_resolve_path_type("", TYPE_HPET, NULL);
 }
 
 static const TypeInfo hpet_device_info = {
