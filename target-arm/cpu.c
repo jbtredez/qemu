@@ -761,6 +761,29 @@ static void cortex_m3_initfn(Object *obj)
     cpu->midr = 0x410fc231;
 }
 
+static void cortex_m4_initfn(Object *obj)
+{
+    ARMCPU *cpu = ARM_CPU(obj);
+    set_feature(&cpu->env, ARM_FEATURE_V7);
+    set_feature(&cpu->env, ARM_FEATURE_M);
+    set_feature(&cpu->env, ARM_FEATURE_VFP4);
+    set_feature(&cpu->env, ARM_FEATURE_VFP_FP16);
+    cpu->midr = 0x410fc241;
+/*    cpu->id_pfr0 = 0x30;
+    cpu->id_pfr1 = 0x200;
+    cpu->id_dfr0 = 0x100000;
+    cpu->id_afr0 = 0x00;
+    cpu->id_mmfr0 = 0x100030;
+    cpu->id_mmfr1 = 0x00;
+    cpu->id_mmfr2 = 0x1000000;
+    cpu->id_mmfr3 = 0x00;
+    cpu->id_isar0 = 0x1101110;
+    cpu->id_isar1 = 0x2112000;
+    cpu->id_isar2 = 0x21232231;
+    cpu->id_isar3 = 0x1111131;
+    cpu->id_isar4 = 0x1310132;*/
+}
+
 static void arm_v7m_class_init(ObjectClass *oc, void *data)
 {
     CPUClass *cc = CPU_CLASS(oc);
@@ -1162,6 +1185,8 @@ static const ARMCPUInfo arm_cpus[] = {
     { .name = "arm1176",     .initfn = arm1176_initfn },
     { .name = "arm11mpcore", .initfn = arm11mpcore_initfn },
     { .name = "cortex-m3",   .initfn = cortex_m3_initfn,
+                             .class_init = arm_v7m_class_init },
+    { .name = "cortex-m4",   .initfn = cortex_m4_initfn,
                              .class_init = arm_v7m_class_init },
     { .name = "cortex-a8",   .initfn = cortex_a8_initfn },
     { .name = "cortex-a9",   .initfn = cortex_a9_initfn },

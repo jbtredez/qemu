@@ -273,6 +273,10 @@ static uint32_t nvic_readl(nvic_state *s, uint32_t offset)
         return 0x01111110;
     case 0xd70: /* ISAR4.  */
         return 0x01310102;
+    case 0xd88:
+    		// CPACR
+			cpu = ARM_CPU(current_cpu);
+			return cpu->env.cp15.c1_coproc;
     /* TODO: Implement debug registers.  */
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "NVIC: Bad read offset 0x%x\n", offset);
@@ -372,6 +376,13 @@ static void nvic_writel(nvic_state *s, uint32_t offset, uint32_t value)
         qemu_log_mask(LOG_UNIMP,
                       "NVIC: fault status registers unimplemented\n");
         break;
+    case 0xd88:
+    	// CPACR
+    	cpu = ARM_CPU(current_cpu);
+    	cpu->env.cp15.c1_coproc = value;
+    	// hack pour activer le fpu
+    	cpu->env.vfp.xregs[ARM_VFP_FPEXC] |= 1<<30;
+    	break;
     case 0xf00: /* Software Triggered Interrupt Register */
         if ((value & 0x1ff) < s->num_irq) {
             gic_set_pending_private(&s->gic, 0, value & 0x1ff);
