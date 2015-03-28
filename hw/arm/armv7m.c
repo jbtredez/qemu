@@ -162,6 +162,11 @@ static void armv7m_reset(void *opaque)
     cpu_reset(CPU(cpu));
 }
 
+static uint64_t translate_kernel_address(void *opaque, uint64_t addr)
+{
+	return addr - 0x8000000LL;
+}
+
 /* Init CPU and memory for a v7-M based board.
    mem_size is in bytes.
    Returns the NVIC array.  */
@@ -214,7 +219,7 @@ qemu_irq *armv7m_init(MemoryRegion *system_memory, int mem_size, int num_irq,
     }
 
     if (kernel_filename) {
-        image_size = load_elf(kernel_filename, NULL, NULL, &entry, &lowaddr,
+        image_size = load_elf(kernel_filename, translate_kernel_address, NULL, &entry, &lowaddr,
                               NULL, big_endian, ELF_MACHINE, 1);
         if (image_size < 0) {
             image_size = load_image_targphys(kernel_filename, 0, mem_size);
