@@ -34,6 +34,7 @@ enum
 	EVENT_MOVE_OBJECT,
 	EVENT_MANAGE_CANOPEN_NODE,
 	EVENT_SET_IO,
+	EVENT_SET_POSITION,
 };
 
 enum
@@ -214,7 +215,7 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 {
 	int i = 0;
 
-	s->pos_robot.x = -1300;
+	s->pos_robot.x = 0;
 	s->pos_robot.y = 0;
 	s->pos_robot.theta = 0;
 
@@ -488,8 +489,13 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 				if(event->data32[0] & GPIO_MASK_9) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_9], event->data32[1]);
 				if(event->data32[0] & GPIO_MASK_10) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_10], event->data32[1]);
 				if(event->data32[0] & GPIO_MASK_11) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_11], event->data32[1]);
-				if(event->data32[0] & GPIO_MASK_GO) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_GO], event->data32[1]);
+				if(event->data32[0] & GPIO_MASK_IN_GO) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_GO], event->data32[1]);
 			}
+			break;
+		case EVENT_SET_POSITION:
+			memcpy(&model->pos_robot.x, &event->data32[0], sizeof(model->pos_robot.x));
+			memcpy(&model->pos_robot.y, &event->data32[1], sizeof(model->pos_robot.y));
+			memcpy(&model->pos_robot.theta, &event->data32[2], sizeof(model->pos_robot.theta));
 			break;
 	}
 }
