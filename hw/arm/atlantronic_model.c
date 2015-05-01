@@ -559,9 +559,9 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 	v[0] = s->npSpeed.x - 0.5 * VOIE_ODO * s->npSpeed.theta;
 	v[1] = s->npSpeed.x + 0.5 * VOIE_ODO * s->npSpeed.theta;
 
-	s->encoder[0] += v[0] * dt * ODO_ENCODER_RESOLUTION / (2 * M_PI * ODO1_WHEEL_RADIUS) ;
+	s->encoder[0] += ODO1_WAY * v[0] * dt * ODO_ENCODER_RESOLUTION / (2 * M_PI * ODO1_WHEEL_RADIUS) ;
 	s->encoder[0] -= (floor((s->encoder[0] - 65536) / 65536) + 1 ) * 65536;
-	s->encoder[1] += v[1] * dt * ODO_ENCODER_RESOLUTION / (2 * M_PI * ODO2_WHEEL_RADIUS) ;
+	s->encoder[1] += ODO2_WAY * v[1] * dt * ODO_ENCODER_RESOLUTION / (2 * M_PI * ODO2_WHEEL_RADIUS) ;
 	s->encoder[1] -= (floor((s->encoder[1] - 65536) / 65536) + 1 ) * 65536;
 	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ENCODER1], ((int32_t) s->encoder[0])&0xffff );
 	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ENCODER2], ((int32_t) s->encoder[1])&0xffff );
