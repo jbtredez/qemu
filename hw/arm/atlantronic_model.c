@@ -9,6 +9,7 @@
 #include "atlantronic_dynamixel.h"
 #include "atlantronic_hokuyo.h"
 #include "atlantronic_can.h"
+#include "atlantronic_omron.h"
 
 #define __disco__
 #include "kernel/robot_parameters.h"
@@ -26,6 +27,7 @@
 #define AX12_NUM           8
 #define RX24_NUM           6
 #define HOKUYO_NUM         2
+#define OMRON_NUM          3
 
 enum
 {
@@ -91,6 +93,7 @@ struct atlantronic_model_state
 	struct atlantronic_can_motor_mip can_motor[CAN_MOTOR_NUM];
 	int pwm_dir[PWM_NUM];
 	struct atlantronic_motor motor[PWM_NUM];
+	struct atlantronic_omron omron[OMRON_NUM];
 
 	struct atlantronic_hokuyo_state hokuyo[HOKUYO_NUM];
 	struct atlantronic_dynamixel_state ax12[AX12_NUM];
@@ -261,6 +264,21 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 		s->pwm_dir[i] = 0;
 		atlantronic_motor_init(&s->motor[i]);
 	}
+
+	struct atlantronic_vect3 pos_omron[OMRON_NUM];
+	pos_omron[0].x = PARAM_NP_X;
+	pos_omron[0].y = 0;
+	pos_omron[0].theta = M_PI;
+	pos_omron[1].x = PARAM_NP_X;
+	pos_omron[1].y = PARAM_LEFT_CORNER_Y;
+	pos_omron[1].theta = M_PI;
+	pos_omron[2].x = PARAM_NP_X;
+	pos_omron[2].y = PARAM_RIGHT_CORNER_Y;
+	pos_omron[2].theta = M_PI;
+
+	atlantronic_omron_init(&s->omron[0], &s->irq[MODEL_IRQ_OUT_GPIO_1], pos_omron[0], REAR_OMRON_RANGE);
+	atlantronic_omron_init(&s->omron[1], &s->irq[MODEL_IRQ_OUT_GPIO_2], pos_omron[1], REAR_OMRON_RANGE);
+	atlantronic_omron_init(&s->omron[2], &s->irq[MODEL_IRQ_OUT_GPIO_3], pos_omron[2], REAR_OMRON_RANGE);
 
 	float outputGain = 2 * M_PI * DRIVING1_WHEEL_RADIUS / (float)(MIP_MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING1_RED);
 	atlantronic_can_motor_mip_init(&s->can_motor[0], 1, outputGain, 0, &s->can);
@@ -593,9 +611,17 @@ static void atlantronic_model_timer_cb(void* arg)
 	}
 
 	atlantronic_model_update_odometry(s, dt);
+
+	// mise a jour des hokuyos
 	for(i = 0; i < HOKUYO_NUM; i++)
 	{
 		s->hokuyo[i].pos_robot = s->pos_robot;
+	}
+
+	// mise a jour des omron
+	for(i = 0; i < OMRON_NUM; i++)
+	{
+		atlantronic_omron_update(&s->omron[i], s->pos_robot);
 	}
 }
 

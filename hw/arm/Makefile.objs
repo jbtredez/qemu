@@ -7,6 +7,7 @@ obj-y += atlantronic_model.o atlantronic_tools.o
 obj-y += atlantronic_adc.o
 obj-y += atlantronic_spi.o
 obj-y += atlantronic_usart.o atlantronic_hokuyo.o atlantronic_dynamixel.o
+obj-y += atlantronic_omron.o
 obj-y += atlantronic_can.o
 obj-y += atlantronic_canopen.o atlantronic_can_motor_faulhaber.o
 obj-y += atlantronic_can_motor_mip.o
