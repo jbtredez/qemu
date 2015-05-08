@@ -53,18 +53,21 @@ static void atlantronic_hokuyo_update(struct atlantronic_hokuyo_state* s)
 
 		for(j = 0; j < atlantronic_static_obj_count; j++)
 		{
-			int k = 0;
-			for(k = 0; k < atlantronic_static_obj[j].size - 1; k++)
+			if( atlantronic_static_obj[j].type == OBJECT_BEACON_FOOTPRINT )
 			{
-				res = atlantronic_segment_intersection(a, b, atlantronic_static_obj[j].pt[k], atlantronic_static_obj[j].pt[k+1], &h);
-				if( ! res )
+				int k = 0;
+				for(k = 0; k < atlantronic_static_obj[j].polyline.size - 1; k++)
 				{
-					float dx = h.x - a.x;
-					float dy = h.y - a.y;
-					float dist = sqrtf(dx * dx + dy * dy);
-					if( dist < dist_min )
+					res = atlantronic_segment_intersection(a, b, atlantronic_static_obj[j].polyline.pt[k], atlantronic_static_obj[j].polyline.pt[k+1], &h);
+					if( ! res )
 					{
-						dist_min = dist;
+						float dx = h.x - a.x;
+						float dy = h.y - a.y;
+						float dist = sqrtf(dx * dx + dy * dy);
+						if( dist < dist_min )
+						{
+							dist_min = dist;
+						}
 					}
 				}
 			}

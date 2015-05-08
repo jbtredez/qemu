@@ -7,7 +7,7 @@
 #include "kernel/rcc.h"
 #include "atlantronic_omron.h"
 
-int atlantronic_omron_init(struct atlantronic_omron *s, qemu_irq* irq_io, struct atlantronic_vect3 pos_omron, float range)
+int atlantronic_omron_init(struct atlantronic_omron *s, qemu_irq* irq_io, struct atlantronic_vect3 pos_omron, float range, enum atlantronic_object_type object_type, int inverted)
 {
 	if(irq_io == NULL)
 	{
@@ -17,6 +17,8 @@ int atlantronic_omron_init(struct atlantronic_omron *s, qemu_irq* irq_io, struct
 	s->pos_omron = pos_omron;
 	s->irq_io = irq_io;
 	s->range = range;
+	s->object_type = object_type;
+	s->inverted = inverted;
 
 	return 0;
 }
@@ -42,30 +44,39 @@ int atlantronic_omron_update(struct atlantronic_omron *s, struct atlantronic_vec
 
 	for(j = 0; j < atlantronic_static_obj_count; j++)
 	{
-		int k = 0;
-		for(k = 0; k < atlantronic_static_obj[j].size - 1; k++)
+		if( atlantronic_static_obj[j].type == s->object_type )
 		{
-			res = atlantronic_segment_intersection(a, b, atlantronic_static_obj[j].pt[k], atlantronic_static_obj[j].pt[k+1], &h);
-			if( ! res )
+			int k = 0;
+			for(k = 0; k < atlantronic_static_obj[j].polyline.size - 1; k++)
 			{
-				float dx = h.x - a.x;
-				float dy = h.y - a.y;
-				float dist = sqrtf(dx * dx + dy * dy);
-				if( dist < dist_min )
+				res = atlantronic_segment_intersection(a, b, atlantronic_static_obj[j].polyline.pt[k], atlantronic_static_obj[j].polyline.pt[k+1], &h);
+				if( ! res )
 				{
-					dist_min = dist;
+					float dx = h.x - a.x;
+					float dy = h.y - a.y;
+					float dist = sqrtf(dx * dx + dy * dy);
+					if( dist < dist_min )
+					{
+						dist_min = dist;
+					}
 				}
 			}
 		}
 	}
 
-	if( dist_min < s->range )
+	int active = dist_min < s->range;
+	if( s->inverted )
 	{
-		qemu_set_irq(*s->irq_io, 0);
+		active = ! active;
+	}
+
+	if( active )
+	{
+		qemu_set_irq(*s->irq_io, 1);
 	}
 	else
 	{
-		qemu_set_irq(*s->irq_io, 1);
+		qemu_set_irq(*s->irq_io, 0);
 	}
 
 	return 0;

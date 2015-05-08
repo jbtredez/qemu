@@ -27,7 +27,7 @@
 #define AX12_NUM           8
 #define RX24_NUM           6
 #define HOKUYO_NUM         2
-#define OMRON_NUM          3
+#define OMRON_NUM          4
 
 enum
 {
@@ -269,16 +269,23 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	pos_omron[0].x = PARAM_NP_X;
 	pos_omron[0].y = 0;
 	pos_omron[0].theta = M_PI;
+
 	pos_omron[1].x = PARAM_NP_X;
 	pos_omron[1].y = PARAM_LEFT_CORNER_Y;
 	pos_omron[1].theta = M_PI;
+
 	pos_omron[2].x = PARAM_NP_X;
 	pos_omron[2].y = PARAM_RIGHT_CORNER_Y;
 	pos_omron[2].theta = M_PI;
 
-	atlantronic_omron_init(&s->omron[0], &s->irq[MODEL_IRQ_OUT_GPIO_1], pos_omron[0], REAR_OMRON_RANGE);
-	atlantronic_omron_init(&s->omron[1], &s->irq[MODEL_IRQ_OUT_GPIO_2], pos_omron[1], REAR_OMRON_RANGE);
-	atlantronic_omron_init(&s->omron[2], &s->irq[MODEL_IRQ_OUT_GPIO_3], pos_omron[2], REAR_OMRON_RANGE);
+	pos_omron[3].x = 100;
+	pos_omron[3].y = 10;
+	pos_omron[3].theta = -M_PI / 4;
+
+	atlantronic_omron_init(&s->omron[0], &s->irq[MODEL_IRQ_OUT_GPIO_1], pos_omron[0], REAR_OMRON_RANGE, OBJECT_BEACON_FOOTPRINT, 1);
+	atlantronic_omron_init(&s->omron[1], &s->irq[MODEL_IRQ_OUT_GPIO_2], pos_omron[1], REAR_OMRON_RANGE, OBJECT_BEACON_FOOTPRINT, 1);
+	atlantronic_omron_init(&s->omron[2], &s->irq[MODEL_IRQ_OUT_GPIO_3], pos_omron[2], REAR_OMRON_RANGE, OBJECT_BEACON_FOOTPRINT, 1);
+	atlantronic_omron_init(&s->omron[3], &s->irq[MODEL_IRQ_OUT_GPIO_4], pos_omron[3], 100, OBJECT_MOBILE_FLOOR_FOOTPRINT, 0);
 
 	float outputGain = 2 * M_PI * DRIVING1_WHEEL_RADIUS / (float)(MIP_MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING1_RED);
 	atlantronic_can_motor_mip_init(&s->can_motor[0], 1, outputGain, 0, &s->can);
@@ -485,7 +492,7 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 			configure_icount(buffer);
 			break;
 		case EVENT_NEW_OBJECT:
-			atlantronic_add_object(MIN(event->data[0], (sizeof(event->data)-1)/sizeof(struct atlantronic_vect2)), (struct atlantronic_vect2*)&event->data[1]);
+			atlantronic_add_object(event->data[0], MIN(event->data[1], (sizeof(event->data)-2)/sizeof(struct atlantronic_vect2)), (struct atlantronic_vect2*)&event->data[2]);
 			break;
 		case EVENT_MOVE_OBJECT:
 			atlantronic_move_object(event->data[0], *((struct atlantronic_vect2*)&event->data[1]), *((struct atlantronic_vect3*)&event->data[1+sizeof(struct atlantronic_vect2)]));
@@ -550,10 +557,13 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 
 		for(j = 0; j < atlantronic_static_obj_count && res ; j++)
 		{
-			int k = 0;
-			for(k = 0; k < atlantronic_static_obj[j].size - 1 && res ; k++)
+			if( atlantronic_static_obj[j].type == OBJECT_FLOOR_FOOTPRINT )
 			{
-				res = atlantronic_segment_intersection(atlantronic_static_obj[j].pt[k], atlantronic_static_obj[j].pt[k+1], corner_abs_old[i], corner_abs_new[i], &h);
+				int k = 0;
+				for(k = 0; k < atlantronic_static_obj[j].polyline.size - 1 && res ; k++)
+				{
+					res = atlantronic_segment_intersection(atlantronic_static_obj[j].polyline.pt[k], atlantronic_static_obj[j].polyline.pt[k+1], corner_abs_old[i], corner_abs_new[i], &h);
+				}
 			}
 		}
 	}

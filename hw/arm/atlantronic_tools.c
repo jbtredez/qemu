@@ -2,7 +2,7 @@
 #include "kernel/robot_parameters.h"
 #include "qemu-common.h"
 
-struct atlantronic_polyline atlantronic_static_obj[STATIC_OBJ_MAX];
+struct atlantronic_object atlantronic_static_obj[STATIC_OBJ_MAX];
 
 int atlantronic_static_obj_count = 0;
 
@@ -14,13 +14,14 @@ const struct atlantronic_vect2 corner_loc[CORNER_NUM] =
 	{ PARAM_NP_X,  PARAM_RIGHT_CORNER_Y},
 };
 
-void atlantronic_add_object(int size, struct atlantronic_vect2* pt)
+void atlantronic_add_object(enum atlantronic_object_type type, int size, struct atlantronic_vect2* pt)
 {
 	if( atlantronic_static_obj_count < STATIC_OBJ_MAX)
 	{
-		atlantronic_static_obj[atlantronic_static_obj_count].pt = g_malloc(sizeof(struct atlantronic_vect2) * size);
-		memcpy(atlantronic_static_obj[atlantronic_static_obj_count].pt, pt, size * sizeof(struct atlantronic_vect2));
-		atlantronic_static_obj[atlantronic_static_obj_count].size = size;
+		atlantronic_static_obj[atlantronic_static_obj_count].polyline.pt = g_malloc(sizeof(struct atlantronic_vect2) * size);
+		memcpy(atlantronic_static_obj[atlantronic_static_obj_count].polyline.pt, pt, size * sizeof(struct atlantronic_vect2));
+		atlantronic_static_obj[atlantronic_static_obj_count].polyline.size = size;
+		atlantronic_static_obj[atlantronic_static_obj_count].type = type;
 	}
 
 	atlantronic_static_obj_count++;
@@ -31,11 +32,11 @@ void atlantronic_move_object(int id, struct atlantronic_vect2 origin, struct atl
 	int i;
 	if( id < atlantronic_static_obj_count )
 	{
-		struct atlantronic_vect2* pt = atlantronic_static_obj[id].pt;
+		struct atlantronic_vect2* pt = atlantronic_static_obj[id].polyline.pt;
 		float c = cos(delta.theta);
 		float s = sin(delta.theta);
 
-		for( i = 0; i < atlantronic_static_obj[id].size; i++)
+		for( i = 0; i < atlantronic_static_obj[id].polyline.size; i++)
 		{
 			float dx = pt[i].x - origin.x;
 			float dy = pt[i].y - origin.y;

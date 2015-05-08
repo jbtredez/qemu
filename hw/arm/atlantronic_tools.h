@@ -24,6 +24,19 @@ struct atlantronic_polyline
 	struct atlantronic_vect2* pt;
 };
 
+enum atlantronic_object_type
+{
+	OBJECT_FLOOR_FOOTPRINT,        // emprunte d'un objet au sol
+	OBJECT_MOBILE_FLOOR_FOOTPRINT, // objet mobile qu'on peut pousser
+	OBJECT_BEACON_FOOTPRINT,       // emprunte d'un objet au niveau de la balsie
+};
+
+struct atlantronic_object
+{
+	enum atlantronic_object_type type;
+	struct atlantronic_polyline polyline;
+};
+
 float sat(float x, float min, float max);
 
 void atlantronic_vect2_loc_to_abs(const struct atlantronic_vect3 *origin, const struct atlantronic_vect2 *pos_in, struct atlantronic_vect2 *pos_out);
@@ -34,12 +47,12 @@ struct atlantronic_vect3 atlantronic_vect3_loc_to_abs_speed(const double theta, 
 
 int atlantronic_segment_intersection(const struct atlantronic_vect2 a, const struct atlantronic_vect2 b, const struct atlantronic_vect2 c, const struct atlantronic_vect2 d, struct atlantronic_vect2* h);
 
-void atlantronic_add_object(int size, struct atlantronic_vect2* pt);
+void atlantronic_add_object(enum atlantronic_object_type type, int size, struct atlantronic_vect2* pt);
 
 void atlantronic_move_object(int id, struct atlantronic_vect2 origin, struct atlantronic_vect3 delta);
 
 extern const struct atlantronic_vect2 corner_loc[CORNER_NUM];
-extern struct atlantronic_polyline atlantronic_static_obj[STATIC_OBJ_MAX];
+extern struct atlantronic_object atlantronic_static_obj[STATIC_OBJ_MAX];
 extern int atlantronic_static_obj_count;
 
 #endif
