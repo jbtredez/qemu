@@ -19,7 +19,6 @@
 #undef LINUX
 
 #define MODEL_DT           0.001f       //!< modele a 1ms
-#define MODEL_PERIOD_TICK  (int)(RCC_SYSCLK*MODEL_DT)
 
 #define PWM_NUM            4
 #define ENCODER_NUM        3
@@ -31,8 +30,7 @@
 
 enum
 {
-	EVENT_CLOCK_FACTOR = 1,
-	EVENT_NEW_OBJECT,
+	EVENT_NEW_OBJECT = 1,
 	EVENT_MOVE_OBJECT,
 	EVENT_MANAGE_CANOPEN_NODE,
 	EVENT_SET_IO,
@@ -85,8 +83,6 @@ struct atlantronic_model_state
 	MemoryRegion iomem;
 	qemu_irq irq[MODEL_IRQ_OUT_NUM];
 	CharDriverState* chr;
-	QEMUTimer* timer;
-	uint64_t timer_count;
 	float encoder[ENCODER_NUM];
 	struct atlantronic_can_bus can;
 	struct can_msg can_msg;
@@ -478,19 +474,6 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 
 	switch(event->type)
 	{
-		case EVENT_CLOCK_FACTOR:
-			if(event->data32[0] > 0)
-			{
-				system_clock_scale = event->data32[0];
-			}
-			else
-			{
-				system_clock_scale = INT_MAX/2;
-			}
-			char buffer[256];
-			sprintf(buffer, "%d", event->data32[1]);
-			configure_icount(buffer);
-			break;
 		case EVENT_NEW_OBJECT:
 			atlantronic_add_object(event->data[0], MIN(event->data[1], (sizeof(event->data)-2)/sizeof(struct atlantronic_vect2)), (struct atlantronic_vect2*)&event->data[2]);
 			break;
@@ -595,14 +578,11 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ENCODER2], ((int32_t) s->encoder[1])&0xffff );
 }
 
-static void atlantronic_model_timer_cb(void* arg)
+void atlantronic_model_systick_cb(void* arg)
 {
 	struct atlantronic_model_state *s = arg;
 	int i = 0;
-	float dt = MODEL_DT/system_clock_scale;
-
-	s->timer_count += MODEL_PERIOD_TICK;
-	timer_mod(s->timer, s->timer_count);
+	float dt = MODEL_DT;
 
 	// mise a jour des moteurs
 	for(i = 0; i < CAN_MOTOR_NUM; i++)
@@ -656,9 +636,7 @@ static int atlantronic_model_init(SysBusDevice * dev)
 
 	atlantronic_model_reset(s);
 
-	s->timer = timer_new(QEMU_CLOCK_VIRTUAL, 1, atlantronic_model_timer_cb, s);
-	s->timer_count = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + MODEL_PERIOD_TICK;
-	timer_mod(s->timer, s->timer_count);
+	systick_add_cb(atlantronic_model_systick_cb, s);
 
 	return 0;
 }

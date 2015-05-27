@@ -15,8 +15,6 @@ struct atlantronic_adc_state
 	ADC_TypeDef adc;
 	int16_t an[AN_NUM];
 	qemu_irq irq;
-	QEMUTimer* timer;
-	uint64_t timer_count;
 };
 
 static void atlantronic_adc_write(void *opaque, hwaddr offset, uint64_t val, unsigned size)
@@ -86,12 +84,9 @@ static uint64_t atlantronic_adc_read(void *opaque, hwaddr offset, unsigned size)
 	return res;	
 }
 
-static void atlantronic_adc_timer_cb(void* arg)
+static void atlantronic_adc_systick_cb(void* arg)
 {
 	struct atlantronic_adc_state *s = arg;
-
-	s->timer_count += ADC_PERIOD_TICK;
-	timer_mod(s->timer, s->timer_count);
 
 	if( s->adc.CR2 & ADC_CR2_SWSTART)
 	{
@@ -183,9 +178,7 @@ static int atlantronic_adc_init(SysBusDevice * dev)
 
 	atlantronic_adc_reset(&s->adc);
 
-	s->timer = timer_new(QEMU_CLOCK_VIRTUAL, 1, atlantronic_adc_timer_cb, s);
-	s->timer_count = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + ADC_PERIOD_TICK;
-	timer_mod(s->timer, s->timer_count);
+	systick_add_cb(atlantronic_adc_systick_cb, s);
 
 	// TODO hack vBat a 24V
 	s->an[8] = 24 * 4096/39;

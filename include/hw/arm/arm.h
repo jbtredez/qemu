@@ -66,4 +66,6 @@ void arm_load_kernel(ARMCPU *cpu, struct arm_boot_info *info);
    ticks.  */
 extern int system_clock_scale;
 
+void systick_add_cb(void (*f)(void*), void* arg);
+
 #endif /* !ARM_MISC_H */

@@ -30,6 +30,12 @@ typedef struct {
     uint32_t num_irq;
 } nvic_state;
 
+typedef struct
+{
+	void (*f)(void* arg);
+	void* arg;
+}SystickCb;
+
 #define TYPE_NVIC "armv7m_nvic"
 /**
  * NVICClass:
@@ -64,7 +70,20 @@ static const uint8_t nvic_id[] = {
 #define SYSTICK_CLKSOURCE (1 << 2)
 #define SYSTICK_COUNTFLAG (1 << 16)
 
-int system_clock_scale;
+int system_clock_scale = 1;
+
+static SystickCb systick_cb[64];
+static int systick_cb_count = 0;
+
+void systick_add_cb(void (*f)(void*), void* arg)
+{
+	if( systick_cb_count < sizeof(systick_cb)/sizeof(systick_cb[0]) )
+	{
+		systick_cb[systick_cb_count].f = f;
+		systick_cb[systick_cb_count].arg = arg;
+		systick_cb_count++;
+	}
+}
 
 /* Conversion factor from qemu timer to SysTick frequencies.  */
 static inline int64_t systick_scale(nvic_state *s)
@@ -85,6 +104,11 @@ static void systick_reload(nvic_state *s, int reset)
 
 static void systick_timer_tick(void * opaque)
 {
+    int i = 0;
+    for(i = 0; i < systick_cb_count; i++)
+    {
+        systick_cb[i].f(systick_cb[i].arg);
+    }
     nvic_state *s = (nvic_state *)opaque;
     s->systick.control |= SYSTICK_COUNTFLAG;
     if (s->systick.control & SYSTICK_TICKINT) {
@@ -273,6 +297,9 @@ static uint32_t nvic_readl(nvic_state *s, uint32_t offset)
         return 0x01111110;
     case 0xd70: /* ISAR4.  */
         return 0x01310102;
+    case 0xe00:
+	systick_timer_tick(s);
+	return 0;
     /* TODO: Implement debug registers.  */
     default:
         qemu_log_mask(LOG_GUEST_ERROR, "NVIC: Bad read offset 0x%x\n", offset);

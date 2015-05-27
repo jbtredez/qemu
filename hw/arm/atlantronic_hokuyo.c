@@ -8,8 +8,8 @@
 #include "atlantronic_hokuyo.h"
 
 #define HOKUYO_MED                     384
-#define HOKUYO_PERIOD_TICK     (RCC_SYSCLK/10)  // 100ms
 #define HOKUYO_MAX_DISTANCE           4000
+#define HOKUYO_PERIOD_TICK             100
 
 #define HOKUYO_RES              (M_PI/512)
 #define HOKUYO_ERROR                    20
@@ -130,14 +130,13 @@ static void atlantronic_hokuyo_gs(struct atlantronic_hokuyo_state* s)
 	s->rx_size = 0;
 }
 
-static void atlantronic_timer_cb(void* arg)
+static void atlantronic_hokuyo_systick_cb(void* arg)
 {
 	struct atlantronic_hokuyo_state *s = arg;
 
-	s->timer_count += HOKUYO_PERIOD_TICK;
-	timer_mod(s->timer, s->timer_count);
-	if( s->clock_scale >= system_clock_scale)
+	if( s->systick_count == 0 )
 	{
+		// tout les 100ms
 		if( s->send_scan_when_ready )
 		{
 			s->scan_ready = 0;
@@ -148,9 +147,8 @@ static void atlantronic_timer_cb(void* arg)
 		{
 			s->scan_ready = 1;
 		}
-		s->clock_scale = 0;
 	}
-	s->clock_scale++;
+	s->systick_count = (s->systick_count + 1) % HOKUYO_PERIOD_TICK;
 }
 
 void atlantronic_hokuyo_in_recv_usart(struct atlantronic_hokuyo_state *s, unsigned char data)
@@ -176,11 +174,6 @@ void atlantronic_hokuyo_in_recv_usart(struct atlantronic_hokuyo_state *s, unsign
 		}
 		else if(strncmp((const char*)s->rx_buffer, "BM", 2) == 0)
 		{
-			if(s->timer_count == 0)
-			{
-				s->timer_count = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + HOKUYO_PERIOD_TICK;
-				timer_mod(s->timer, s->timer_count);
-			}
 			// message BMxxx\n : reponse BMxxx\n00P\n\n
 			memcpy(s->tx_buffer, s->rx_buffer, s->rx_size);
 			s->tx_size = s->rx_size;
@@ -229,12 +222,10 @@ int atlantronic_hokuyo_init(struct atlantronic_hokuyo_state *s, qemu_irq* irq_tx
 
 	s->pos_hokuyo = pos_hokuyo;
 	s->irq_tx = irq_tx;
-	s->timer_count = 0;
-	s->timer = timer_new(QEMU_CLOCK_VIRTUAL, 1, atlantronic_timer_cb, s);
 	s->scan_ready = 0;
 	s->send_scan_when_ready = 0;
 	s->rx_size = 0;
-	s->clock_scale = 1;
-
-    return 0;
+	s->systick_count = 0;
+	systick_add_cb(atlantronic_hokuyo_systick_cb, s);
+	return 0;
 }
