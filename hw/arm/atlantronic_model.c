@@ -12,7 +12,7 @@
 #include "atlantronic_omron.h"
 
 #define __disco__
-#include "kernel/robot_parameters.h"
+#include "disco/robot_parameters.h"
 #include "kernel/rcc.h"
 #define LINUX
 #include "kernel/driver/io.h"
@@ -484,21 +484,19 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 //			atlantronic_canopen_manage_node_connextion(&model->canopen, event->data32[0], event->data32[1] == EVENT_MANAGE_CANOPEN_NODE_CONNECT ? 1 : 0);
 			break;
 		case EVENT_SET_IO:
-			{
-				if(event->data32[0] & GPIO_MASK_0) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_0], event->data32[1]);
-				if(event->data32[0] & GPIO_MASK_1) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_1], event->data32[1]);
-				if(event->data32[0] & GPIO_MASK_2) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_2], event->data32[1]);
-				if(event->data32[0] & GPIO_MASK_3) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_3], event->data32[1]);
-				if(event->data32[0] & GPIO_MASK_4) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_4], event->data32[1]);
-				if(event->data32[0] & GPIO_MASK_5) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_5], event->data32[1]);
-				if(event->data32[0] & GPIO_MASK_6) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_6], event->data32[1]);
-				if(event->data32[0] & GPIO_MASK_7) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_7], event->data32[1]);
-				if(event->data32[0] & GPIO_MASK_8) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_8], event->data32[1]);
-				if(event->data32[0] & GPIO_MASK_9) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_9], event->data32[1]);
-				if(event->data32[0] & GPIO_MASK_10) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_10], event->data32[1]);
-				if(event->data32[0] & GPIO_MASK_11) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_11], event->data32[1]);
-				if(event->data32[0] & GPIO_MASK_IN_GO) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_GO], event->data32[1]);
-			}
+			if(event->data32[0] & GPIO_MASK_0) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_0], event->data32[1]);
+			if(event->data32[0] & GPIO_MASK_1) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_1], event->data32[1]);
+			if(event->data32[0] & GPIO_MASK_2) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_2], event->data32[1]);
+			if(event->data32[0] & GPIO_MASK_3) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_3], event->data32[1]);
+			if(event->data32[0] & GPIO_MASK_4) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_4], event->data32[1]);
+			if(event->data32[0] & GPIO_MASK_5) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_5], event->data32[1]);
+			if(event->data32[0] & GPIO_MASK_6) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_6], event->data32[1]);
+			if(event->data32[0] & GPIO_MASK_7) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_7], event->data32[1]);
+			if(event->data32[0] & GPIO_MASK_8) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_8], event->data32[1]);
+			if(event->data32[0] & GPIO_MASK_9) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_9], event->data32[1]);
+			if(event->data32[0] & GPIO_MASK_10) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_10], event->data32[1]);
+			if(event->data32[0] & GPIO_MASK_11) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_11], event->data32[1]);
+			if(event->data32[0] & GPIO_MASK_IN_GO) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_GO], event->data32[1]);
 			break;
 		case EVENT_SET_POSITION:
 			memcpy(&model->pos_robot.x, &event->data32[0], sizeof(model->pos_robot.x));
@@ -578,7 +576,7 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ENCODER2], ((int32_t) s->encoder[1])&0xffff );
 }
 
-void atlantronic_model_systick_cb(void* arg)
+static void atlantronic_model_systick_cb(void* arg)
 {
 	struct atlantronic_model_state *s = arg;
 	int i = 0;

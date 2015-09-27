@@ -1,5 +1,5 @@
 #include "atlantronic_tools.h"
-#include "kernel/robot_parameters.h"
+#include "disco/robot_parameters.h"
 #include "qemu-common.h"
 
 struct atlantronic_object atlantronic_static_obj[STATIC_OBJ_MAX];
