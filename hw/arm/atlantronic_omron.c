@@ -7,7 +7,7 @@
 #include "kernel/rcc.h"
 #include "atlantronic_omron.h"
 
-int atlantronic_omron_init(struct atlantronic_omron *s, qemu_irq* irq_io, struct atlantronic_vect3 pos_omron, float range, enum atlantronic_object_type object_type, int inverted)
+int atlantronic_omron_init(struct atlantronic_omron *s, qemu_irq* irq_io, struct atlantronic_vect3 pos_omron, float range, int object_flags, int inverted)
 {
 	if(irq_io == NULL)
 	{
@@ -17,7 +17,7 @@ int atlantronic_omron_init(struct atlantronic_omron *s, qemu_irq* irq_io, struct
 	s->pos_omron = pos_omron;
 	s->irq_io = irq_io;
 	s->range = range;
-	s->object_type = object_type;
+	s->object_flags = object_flags;
 	s->inverted = inverted;
 
 	return 0;
@@ -44,7 +44,7 @@ int atlantronic_omron_update(struct atlantronic_omron *s, struct atlantronic_vec
 
 	for(j = 0; j < atlantronic_static_obj_count; j++)
 	{
-		if( atlantronic_static_obj[j].type == s->object_type )
+		if( atlantronic_static_obj[j].flags & s->object_flags )
 		{
 			int k = 0;
 			for(k = 0; k < atlantronic_static_obj[j].polyline.size - 1; k++)

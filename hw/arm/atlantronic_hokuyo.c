@@ -53,7 +53,8 @@ static void atlantronic_hokuyo_update(struct atlantronic_hokuyo_state* s)
 
 		for(j = 0; j < atlantronic_static_obj_count; j++)
 		{
-			if( atlantronic_static_obj[j].type == OBJECT_BEACON_FOOTPRINT )
+			// on regarde uniquement les objets visible par le hokuyo
+			if( atlantronic_static_obj[j].flags & OBJECT_SEEN_BY_HOKUYO )
 			{
 				int k = 0;
 				for(k = 0; k < atlantronic_static_obj[j].polyline.size - 1; k++)

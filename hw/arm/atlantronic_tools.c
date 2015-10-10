@@ -14,14 +14,14 @@ const struct atlantronic_vect2 corner_loc[CORNER_NUM] =
 	{ PARAM_NP_X,  PARAM_RIGHT_CORNER_Y+30},
 };
 
-void atlantronic_add_object(enum atlantronic_object_type type, int size, struct atlantronic_vect2* pt)
+void atlantronic_add_object(int flags, int size, struct atlantronic_vect2* pt)
 {
 	if( atlantronic_static_obj_count < STATIC_OBJ_MAX)
 	{
 		atlantronic_static_obj[atlantronic_static_obj_count].polyline.pt = g_malloc(sizeof(struct atlantronic_vect2) * size);
 		memcpy(atlantronic_static_obj[atlantronic_static_obj_count].polyline.pt, pt, size * sizeof(struct atlantronic_vect2));
 		atlantronic_static_obj[atlantronic_static_obj_count].polyline.size = size;
-		atlantronic_static_obj[atlantronic_static_obj_count].type = type;
+		atlantronic_static_obj[atlantronic_static_obj_count].flags = flags;
 	}
 
 	atlantronic_static_obj_count++;

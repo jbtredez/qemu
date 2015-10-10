@@ -278,10 +278,10 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	pos_omron[3].y = 10;
 	pos_omron[3].theta = -M_PI / 4;
 
-	atlantronic_omron_init(&s->omron[0], &s->irq[MODEL_IRQ_OUT_GPIO_1], pos_omron[0], REAR_OMRON_RANGE, OBJECT_BEACON_FOOTPRINT, 1);
-	atlantronic_omron_init(&s->omron[1], &s->irq[MODEL_IRQ_OUT_GPIO_2], pos_omron[1], REAR_OMRON_RANGE, OBJECT_BEACON_FOOTPRINT, 1);
-	atlantronic_omron_init(&s->omron[2], &s->irq[MODEL_IRQ_OUT_GPIO_3], pos_omron[2], REAR_OMRON_RANGE, OBJECT_BEACON_FOOTPRINT, 1);
-	atlantronic_omron_init(&s->omron[3], &s->irq[MODEL_IRQ_OUT_GPIO_4], pos_omron[3], 100, OBJECT_MOBILE_FLOOR_FOOTPRINT, 0);
+	atlantronic_omron_init(&s->omron[0], &s->irq[MODEL_IRQ_OUT_GPIO_1], pos_omron[0], REAR_OMRON_RANGE, OBJECT_SEEN_BY_OMRON, 1);
+	atlantronic_omron_init(&s->omron[1], &s->irq[MODEL_IRQ_OUT_GPIO_2], pos_omron[1], REAR_OMRON_RANGE, OBJECT_SEEN_BY_OMRON, 1);
+	atlantronic_omron_init(&s->omron[2], &s->irq[MODEL_IRQ_OUT_GPIO_3], pos_omron[2], REAR_OMRON_RANGE, OBJECT_SEEN_BY_OMRON, 1);
+	atlantronic_omron_init(&s->omron[3], &s->irq[MODEL_IRQ_OUT_GPIO_4], pos_omron[3], 100, OBJECT_SEEN_BY_OMRON, 0);
 
 	float outputGain = 2 * M_PI * DRIVING1_WHEEL_RADIUS / (float)(MIP_MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING1_RED);
 	atlantronic_can_motor_mip_init(&s->can_motor[0], 1, outputGain, 0, &s->can);
@@ -538,7 +538,8 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 
 		for(j = 0; j < atlantronic_static_obj_count && res ; j++)
 		{
-			if( atlantronic_static_obj[j].type == OBJECT_FLOOR_FOOTPRINT )
+			// on regarde uniquement les objets consideres comme fixe
+			if( ! (atlantronic_static_obj[j].flags & OBJECT_MOBILE) )
 			{
 				int k = 0;
 				for(k = 0; k < atlantronic_static_obj[j].polyline.size - 1 && res ; k++)

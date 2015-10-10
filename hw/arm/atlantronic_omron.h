@@ -9,11 +9,11 @@ struct atlantronic_omron
 	qemu_irq* irq_io;
 	float range;
 	struct atlantronic_vect3 pos_omron;   //!< position du omron dans le repere robot
-	enum atlantronic_object_type object_type;
+	int object_flags;
 	int inverted;                            //!< inversion du signal 0 / 1
 };
 
-int atlantronic_omron_init(struct atlantronic_omron *s, qemu_irq* irq_io, struct atlantronic_vect3 pos_omron, float range, enum atlantronic_object_type object_type, int inverted);
+int atlantronic_omron_init(struct atlantronic_omron *s, qemu_irq* irq_io, struct atlantronic_vect3 pos_omron, float range, int object_flags, int inverted);
 
 int atlantronic_omron_update(struct atlantronic_omron *s, struct atlantronic_vect3 pos_robot);
 
