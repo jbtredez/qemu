@@ -516,7 +516,7 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 	// calcul de la nouvelle position
 	s->npSpeed.x = 0.5 * (s->can_motor[0].v + s->can_motor[1].v);
 	s->npSpeed.y = 0;
-	s->npSpeed.theta = (s->can_motor[1].v - s->can_motor[0].v) * VOIE_MOT_INV;
+	s->npSpeed.theta = (s->can_motor[1].v - s->can_motor[0].v) / VOIE_MOT;
 	struct atlantronic_vect3 npSpeedAbs = atlantronic_vect3_loc_to_abs_speed(s->pos_robot.theta, &s->npSpeed);
 
 	struct atlantronic_vect3 pos_new = s->pos_robot;
@@ -539,6 +539,7 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 		for(j = 0; j < atlantronic_static_obj_count && res ; j++)
 		{
 			// on regarde uniquement les objets consideres comme fixe
+// TODO revoir algo de detection de collision (et aussi dans code robot?) pour le cas ou un segment petit est compris dans le tube du trajet
 			if( ! (atlantronic_static_obj[j].flags & OBJECT_MOBILE) )
 			{
 				int k = 0;
