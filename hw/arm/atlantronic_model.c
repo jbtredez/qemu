@@ -28,6 +28,21 @@
 #define HOKUYO_NUM         2
 #define OMRON_NUM          4
 
+// TODO parametrage du gros robot - il faudrait le faire envoyer par la simumlation pour ne pas l'avoir en dur et pouvoir passer du gros robot au petit en simu
+#define ODO1_WHEEL_RADIUS                    39.7f
+#define ODO2_WHEEL_RADIUS                    39.7f
+#define ODO1_WAY                                 1
+#define ODO2_WAY                                -1
+#define ODO_ENCODER_RESOLUTION                4096
+#define VOIE_ODO                            110.0f
+#define VOIE_MOT                            164.0f
+#define DRIVING1_WHEEL_RADIUS               100.0f
+#define DRIVING2_WHEEL_RADIUS               100.0f
+#define MOTOR_RED                   (5.2*88/25.0f)
+#define MOTOR_ENCODER_RESOLUTION              1024
+#define MOTOR_DRIVING1_RED              -MOTOR_RED  //!< reduction moteur 1
+#define MOTOR_DRIVING2_RED               MOTOR_RED  //!< reduction moteur 2
+
 enum
 {
 	EVENT_NEW_OBJECT = 1,
@@ -525,10 +540,12 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 	pos_new.theta += npSpeedAbs.theta * dt;
 
 	// detection collisions
+#if 0
 	struct atlantronic_vect2 corner_abs_old[CORNER_NUM];
 	struct atlantronic_vect2 corner_abs_new[CORNER_NUM];
 	int res = -1;
 	int i;
+
 	for(i = 0; i < CORNER_NUM && res; i++)
 	{
 		int j = 0;
@@ -550,7 +567,32 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 			}
 		}
 	}
-
+#else
+	int res = -1;
+	int j;
+	struct atlantronic_vect2 a;// = {s->pos_robot.x, s->pos_robot.y};
+	struct atlantronic_vect2 b;// = {pos_new.x, pos_new.y};
+	struct atlantronic_vect2 aLoc = {PARAM_LEFT_CORNER_X/2, 0};
+	struct atlantronic_vect2 bLoc = {PARAM_LEFT_CORNER_X/2, 0};
+	atlantronic_vect2_loc_to_abs(&s->pos_robot, &aLoc, &a);
+	atlantronic_vect2_loc_to_abs(&pos_new, &bLoc, &b);
+	for(j = 0; j < atlantronic_static_obj_count && res ; j++)
+	{
+		// on regarde uniquement les objets consideres comme fixe
+		if( ! (atlantronic_static_obj[j].flags & OBJECT_MOBILE) )
+		{
+			int k = 0;
+			for(k = 0; k < atlantronic_static_obj[j].polyline.size - 1 && res ; k++)
+			{
+				float d = atlantronic_segment_distance(atlantronic_static_obj[j].polyline.pt[k], atlantronic_static_obj[j].polyline.pt[k+1], a, b);
+				if( d < PARAM_LEFT_CORNER_Y )
+				{
+					res = 0;
+				}
+			}
+		}
+	}
+#endif
 	if( ! res )
 	{
 		// bloquage d'un des moteurs - TODO : on refait le calcul pour bloquer les moteurs

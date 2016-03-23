@@ -44,6 +44,8 @@ struct atlantronic_vect3 atlantronic_vect3_loc_to_abs_speed(const double theta, 
 
 int atlantronic_segment_intersection(const struct atlantronic_vect2 a, const struct atlantronic_vect2 b, const struct atlantronic_vect2 c, const struct atlantronic_vect2 d, struct atlantronic_vect2* h);
 
+float atlantronic_segment_distance(const struct atlantronic_vect2 a, const struct atlantronic_vect2 b, const struct atlantronic_vect2 c, const struct atlantronic_vect2 d);
+
 void atlantronic_add_object(int flags, int size, struct atlantronic_vect2* pt);
 
 void atlantronic_move_object(int id, struct atlantronic_vect2 origin, struct atlantronic_vect3 delta);

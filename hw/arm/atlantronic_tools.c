@@ -151,3 +151,79 @@ int atlantronic_segment_intersection(const struct atlantronic_vect2 a, const str
 
 	return 0;
 }
+
+//! calcule l'intersection h entre deux segments [a b] et [c d]
+//! @return 0 si h est trouvé, < 0 sinon
+float atlantronic_segment_distance(const struct atlantronic_vect2 a, const struct atlantronic_vect2 b, const struct atlantronic_vect2 c, const struct atlantronic_vect2 d)
+{
+	struct atlantronic_vect2 h;
+	int res  = atlantronic_segment_intersection(a, b, c, d, &h);
+
+	if(! res )
+	{
+		// il y a une intersection => la distance est 0
+		return 0;
+	}
+
+	float bestDist = HUGE_VALF;
+	// pas d'intersection
+	// test des projections des points sur l'autre segment
+	// projection c sur ab
+	struct atlantronic_vect2 ac = {c.x - a.x, c.y - a.y};
+	struct atlantronic_vect2 ab = {b.x - a.x, b.y - a.y};
+	float nab2 = ab.x * ab.x + ab.y * ab.y;
+	float nab = sqrt(nab2);
+	float ps = ac.x * ab.x + ac.y * ab.y;
+	if( ps < nab2 && ps > 0)
+	{
+		// projection sur le segment
+		float dist = fabsf(ab.x * ac.y - ab.y * ac.x) / nab;
+		if( dist < bestDist )
+		{
+			bestDist = dist;
+		}
+	}
+
+	// projection d sur ab
+	struct atlantronic_vect2 ad = {d.x - a.x, d.y - a.y};
+	ps = ad.x * ab.x + ad.y * ab.y;
+	if( ps < nab2 && ps > 0)
+	{
+		// projection sur le segment
+		float dist = fabsf(ab.x * ad.y - ab.y * ad.x) / nab;
+		if( dist < bestDist )
+		{
+			bestDist = dist;
+		}
+	}
+
+	// projection a sur cd
+	struct atlantronic_vect2 cd = {d.x - c.x, d.y - c.y};
+	float ncd2 = cd.x * cd.x + cd.y * cd.y;
+	float ncd = sqrt(ncd2);
+	ps = - ac.x * cd.x - ac.y * cd.y;
+	if( ps < ncd2 && ps > 0)
+	{
+		// projection sur le segment
+		float dist = fabsf(cd.x * ac.y - cd.y * ac.x) / ncd;
+		if( dist < bestDist )
+		{
+			bestDist = dist;
+		}
+	}
+
+	// projection b sur cd
+	struct atlantronic_vect2 cb = {b.x - c.x, b.y - c.y};
+	ps = cb.x * cd.x + cb.y * cd.y;
+	if( ps < ncd2 && ps > 0)
+	{
+		// projection sur le segment
+		float dist = fabsf(cd.x * cb.y - cd.y * cb.x) / ncd;
+		if( dist < bestDist )
+		{
+			bestDist = dist;
+		}
+	}
+
+	return bestDist;
+}
