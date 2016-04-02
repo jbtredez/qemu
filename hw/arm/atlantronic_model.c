@@ -2,6 +2,7 @@
 #include "hw/boards.h"
 #include "hw/arm/arm.h"
 #include "sysemu/char.h"
+#include "sysemu/cpus.h"
 #include "atlantronic_cpu.h"
 #include "atlantronic_model.h"
 #include "atlantronic_tools.h"
@@ -50,6 +51,7 @@ enum
 	EVENT_MANAGE_CANOPEN_NODE,
 	EVENT_SET_IO,
 	EVENT_SET_POSITION,
+	EVENT_SET_MAX_CYCLE_COUNT,
 };
 
 enum
@@ -112,6 +114,7 @@ struct atlantronic_model_state
 
 	struct atlantronic_vect3 pos_robot;
 	struct atlantronic_vect3 npSpeed;
+	unsigned int cycle_count;
 };
 
 static void atlantronic_motor_init(struct atlantronic_motor* motor)
@@ -241,6 +244,7 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	s->can.irq_size = &s->irq[MODEL_IRQ_OUT_CAN1_MSG_SIZE];
 	s->can.irq_data_h = &s->irq[MODEL_IRQ_OUT_CAN1_MSG_DATA_H];
 	s->can.irq_data_l = &s->irq[MODEL_IRQ_OUT_CAN1_MSG_DATA_L];
+	s->cycle_count = 0;
 
 	for(i = 0; i < AX12_NUM; i++)
 	{
@@ -518,6 +522,16 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 			memcpy(&model->pos_robot.y, &event->data32[1], sizeof(model->pos_robot.y));
 			memcpy(&model->pos_robot.theta, &event->data32[2], sizeof(model->pos_robot.theta));
 			break;
+		case EVENT_SET_MAX_CYCLE_COUNT:
+			if( event->data32[0] < model->cycle_count )
+			{
+				pause_all_vcpus();
+			}
+			else
+			{
+				resume_all_vcpus();
+			}
+			break;
 	}
 }
 
@@ -655,6 +669,8 @@ static void atlantronic_model_systick_cb(void* arg)
 	{
 		atlantronic_omron_update(&s->omron[i], s->pos_robot);
 	}
+
+	s->cycle_count++;
 }
 
 static int atlantronic_model_init(SysBusDevice * dev)
