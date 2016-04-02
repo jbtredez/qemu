@@ -56,12 +56,12 @@ static void atlantronic_gpio_write(void *opaque, hwaddr offset, uint64_t val, un
 			break;
 		case offsetof(GPIO_TypeDef, BSRRL):
 			// atomic bit set
-			val = s->gpio.ODR | (val & 0xff);
+			val = s->gpio.ODR | (val & 0xffff);
 			atlantronic_gpio_update(s, val);
 			break;
 		case offsetof(GPIO_TypeDef, BSRRH):
 			// atomic bit reset
-			val = s->gpio.ODR & (~(val & 0xff));
+			val = s->gpio.ODR & (~(val & 0xffff));
 			atlantronic_gpio_update(s, val);
 			break;
 		W_ACCESS(GPIO_TypeDef, s->gpio, LCKR, val);

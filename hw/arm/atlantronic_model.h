@@ -55,4 +55,48 @@ enum
 	MODEL_IRQ_IN_NUM,
 };
 
+enum
+{
+	EVENT_NEW_OBJECT = 1,
+	EVENT_MOVE_OBJECT,
+	EVENT_MANAGE_CAN_MOTOR,
+	EVENT_SET_IO,
+	EVENT_SET_POSITION,
+	EVENT_SET_MAX_CYCLE_COUNT,
+	EVENT_SET_ROBOT_PARAMETERS,
+};
+
+enum
+{
+	EVENT_MANAGE_CAN_MOTOR_CONNECT,
+	EVENT_MANAGE_CAN_MOTOR_DISCONNECT,
+};
+
+typedef struct
+{
+	uint32_t type;        //!< type
+	union
+	{
+		uint8_t data[256];     //!< données
+		uint32_t data32[64];   //!< données
+	};
+} QemuAtlantronicModelEvent;
+
+typedef struct
+{
+	float odoWheel1Radius;
+	float odoWheel2Radius;
+	char odoWheel1Way;
+	char odoWheel2Way;
+	uint16_t odoEncoderResolution;
+	float voieOdo;
+	float voieMot;
+	float driving1WheelRaduis;
+	float driving2WheelRaduis;
+	uint32_t motorEncoderResolution;
+	float drivingMotor1Red;
+	float drivingMotor2Red;
+	uint16_t canDrivingMotors;
+} __attribute__((packed)) QemuRobotParameters;
+
 #endif

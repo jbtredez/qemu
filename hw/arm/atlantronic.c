@@ -66,11 +66,11 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	DeviceState* tim2 = sysbus_create_simple("atlantronic-tim", TIM2_BASE, NULL);
 	DeviceState* tim3 = sysbus_create_simple("atlantronic-tim", TIM3_BASE, NULL);
 	DeviceState* tim4 = sysbus_create_simple("atlantronic-tim", TIM4_BASE, NULL);
-	sysbus_create_simple("atlantronic-tim", TIM5_BASE, NULL);
+	DeviceState* tim5 = sysbus_create_simple("atlantronic-tim", TIM5_BASE, NULL);
 	sysbus_create_simple("atlantronic-tim", TIM6_BASE, NULL);
 	sysbus_create_simple("atlantronic-tim", TIM7_BASE, NULL);
 	sysbus_create_simple("atlantronic-tim", TIM8_BASE, NULL);
-	sysbus_create_simple("atlantronic-tim", TIM9_BASE, NULL);
+	DeviceState* tim9 = sysbus_create_simple("atlantronic-tim", TIM9_BASE, NULL);
 	sysbus_create_simple("atlantronic-tim", TIM10_BASE, NULL);
 	sysbus_create_simple("atlantronic-tim", TIM11_BASE, NULL);
 	sysbus_create_simple("atlantronic-tim", TIM12_BASE, NULL);
@@ -224,27 +224,27 @@ static void atlantronic_init(QEMUMachineInitArgs *args)
 	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_11, qdev_get_gpio_in(gpiog, 6));
 	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_GPIO_GO, qdev_get_gpio_in(gpioc, 14));
 
-	qdev_connect_gpio_out(tim2, 0, qdev_get_gpio_in(model, MODEL_IRQ_IN_ENCODER1)); // encodeur 1 (droite)
-	qdev_connect_gpio_out(tim4, 0, qdev_get_gpio_in(model, MODEL_IRQ_IN_ENCODER2)); // encodeur 2 (gauche)
+	qdev_connect_gpio_out(tim2, 0, qdev_get_gpio_in(model, MODEL_IRQ_IN_ENCODER1)); // encodeur 1
+	qdev_connect_gpio_out(tim4, 0, qdev_get_gpio_in(model, MODEL_IRQ_IN_ENCODER2)); // encodeur 2
 	qdev_connect_gpio_out(tim3, 0, qdev_get_gpio_in(model, MODEL_IRQ_IN_ENCODER3)); // encodeur 3
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_ENCODER1, qdev_get_gpio_in(tim2, 0));  // encodeur 1 (droite)
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_ENCODER2, qdev_get_gpio_in(tim4, 0));  // encodeur 2 (gauche)
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_ENCODER1, qdev_get_gpio_in(tim2, 0));  // encodeur 1
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_ENCODER2, qdev_get_gpio_in(tim4, 0));  // encodeur 2
 	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_ENCODER3, qdev_get_gpio_in(tim3, 0)); // encodeur 3
-#if 0
-	qdev_connect_gpio_out(tim1, 1, qdev_get_gpio_in(model, 2)); // pwm 1 (droite)
-	qdev_connect_gpio_out(tim1, 2, qdev_get_gpio_in(model, 3)); // pwm 2 (gauche)
-	qdev_connect_gpio_out(tim1, 3, qdev_get_gpio_in(model, 4)); // pwm 3
-	qdev_connect_gpio_out(tim1, 4, qdev_get_gpio_in(model, 5)); // pwm 4
-	qdev_connect_gpio_out(gpioe, 8, qdev_get_gpio_in(model, 6)); // direction pwm 1 (droite)
-	qdev_connect_gpio_out(gpioe, 10, qdev_get_gpio_in(model, 7)); // direction pwm 2 (gauche)
-	qdev_connect_gpio_out(gpioe, 12, qdev_get_gpio_in(model, 8)); // direction pwm 3
-	qdev_connect_gpio_out(gpioe, 15, qdev_get_gpio_in(model, 9)); // direction pwm 4
 
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_I_RIGHT, qdev_get_gpio_in(gpioc, 5));  // intensite moteur 1 (droite)
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_I_LEFT, qdev_get_gpio_in(gpioa, 5));  // intensite moteur 2 (gauche)
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_I_MOT3, qdev_get_gpio_in(gpioc, 3));  // intensite moteur 3
-	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_I_MOT4, qdev_get_gpio_in(gpioc, 1));  // intensite moteur 4
-#endif
+	qdev_connect_gpio_out(tim5, 3, qdev_get_gpio_in(model, MODEL_IRQ_IN_PWM1)); // pwm 1
+	qdev_connect_gpio_out(tim5, 4, qdev_get_gpio_in(model, MODEL_IRQ_IN_PWM2)); // pwm 2
+	qdev_connect_gpio_out(tim9, 1, qdev_get_gpio_in(model, MODEL_IRQ_IN_PWM3)); // pwm 3
+	qdev_connect_gpio_out(tim9, 2, qdev_get_gpio_in(model, MODEL_IRQ_IN_PWM4)); // pwm 4
+	qdev_connect_gpio_out(gpiof, 6, qdev_get_gpio_in(model, MODEL_IRQ_IN_PWM_DIR1)); // direction pwm 1
+	qdev_connect_gpio_out(gpioc, 8, qdev_get_gpio_in(model, MODEL_IRQ_IN_PWM_DIR2)); // direction pwm 2
+	qdev_connect_gpio_out(gpiog, 3, qdev_get_gpio_in(model, MODEL_IRQ_IN_PWM_DIR3)); // direction pwm 3
+	qdev_connect_gpio_out(gpiog, 2, qdev_get_gpio_in(model, MODEL_IRQ_IN_PWM_DIR4)); // direction pwm 4
+/*
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_I_RIGHT, qdev_get_gpio_in(gpioa, 4));  // intensite moteur 1
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_I_LEFT, qdev_get_gpio_in(gpioa, 5));  // intensite moteur 2
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_I_MOT3, qdev_get_gpio_in(gpioa, 6));  // intensite moteur 3
+	qdev_connect_gpio_out(model, MODEL_IRQ_OUT_I_MOT4, qdev_get_gpio_in(gpiob, 1));  // intensite moteur 4
+*/
 }
 
 static QEMUMachine atlantronic_discovery =

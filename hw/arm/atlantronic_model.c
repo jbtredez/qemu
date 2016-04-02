@@ -29,69 +29,11 @@
 #define HOKUYO_NUM         2
 #define OMRON_NUM          4
 
-// TODO parametrage du gros robot - il faudrait le faire envoyer par la simumlation pour ne pas l'avoir en dur et pouvoir passer du gros robot au petit en simu
-#define ODO1_WHEEL_RADIUS                    39.7f
-#define ODO2_WHEEL_RADIUS                    39.7f
-#define ODO1_WAY                                 1
-#define ODO2_WAY                                -1
-#define ODO_ENCODER_RESOLUTION                4096
-#define VOIE_ODO                            110.0f
-#define VOIE_MOT                            164.0f
-#define DRIVING1_WHEEL_RADIUS               100.0f
-#define DRIVING2_WHEEL_RADIUS               100.0f
-#define MOTOR_RED                   (5.2*88/25.0f)
-#define MOTOR_ENCODER_RESOLUTION              1024
-#define MOTOR_DRIVING1_RED              -MOTOR_RED  //!< reduction moteur 1
-#define MOTOR_DRIVING2_RED               MOTOR_RED  //!< reduction moteur 2
-
-enum
-{
-	EVENT_NEW_OBJECT = 1,
-	EVENT_MOVE_OBJECT,
-	EVENT_MANAGE_CANOPEN_NODE,
-	EVENT_SET_IO,
-	EVENT_SET_POSITION,
-	EVENT_SET_MAX_CYCLE_COUNT,
-};
-
-enum
-{
-	EVENT_MANAGE_CANOPEN_NODE_CONNECT,
-	EVENT_MANAGE_CANOPEN_NODE_DISCONNECT,
-};
-
-struct atlantronic_model_rx_event
-{
-	uint32_t type;        //!< type
-	union
-	{
-		uint8_t data[256];     //!< données
-		uint32_t data32[64];   //!< données
-	};
-};
-
 struct atlantronic_motor
 {
-	float pwm;      //!< pwm
-	float gain_pwm; //!< gain entre la pwm et u (V)
-	float f;        //!< coefficient de frottement dynamique du moteur
-	float r;        //!< résistance du moteur Ohm
-	float j;        //!< moment d'inertie du robot par rapport à l'axe de rotation du moteur kgm²
-	float k;        //!< constante du moteur en Nm/A
-	float l;        //!< inductance du moteur en H
-	float cp;       //!< couple de pertes (frottements de la roue sur le sol + frottements / transmission)
-	float red;      //!< reducteur
-	float i_max;    //!< courant maximal (A)
-
-	int block;     //!< bloquage du moteur
-
-	float i_old;         //!< intensite du moteur du cycle precedent (A)
-	float w_old;         //!< vitesse de rotation du moteur (avant reducteur) du cycle precedent
-	float theta_old;     //!< angle du moteur (après reducteur) du cycle precedent
-
-	float i;             //!< intensite du moteur (A)
-	float w;             //!< vitesse de rotation du moteur (avant reducteur)
-	float theta;         //!< angle du moteur (après reducteur)
+	float pwm;         //!< pwm
+	float gain_pwm;    //!< gain entre la pwm et u (V)
+	float uToRpmGain;  //!< gain de conversion entre u (V) et la vitesse du moteur en rpm
 };
 
 struct atlantronic_model_state
@@ -115,122 +57,32 @@ struct atlantronic_model_state
 	struct atlantronic_vect3 pos_robot;
 	struct atlantronic_vect3 npSpeed;
 	unsigned int cycle_count;
+	QemuRobotParameters robotParameters;
 };
 
 static void atlantronic_motor_init(struct atlantronic_motor* motor)
 {
 	motor->pwm  = 0;
 	motor->gain_pwm = 24.0f;
-	motor->f  = 0;
-	motor->r  = 1.11;
-	motor->j  = 0.0001;
-	motor->k  = 0.0364;
-	motor->l  = 201e-6;
-	motor->cp = 0;
-	motor->red = 1 / 21.0f;
-	motor->i_max = 2.25;
-
-	motor->block = 0;
-
-	motor->i_old = 0;
-	motor->theta_old = 0;
-	motor->w_old = 0;
-
-	motor->i = 0;
-	motor->theta = 0;
-	motor->w = 0;
-}
-#if 0
-//! Calcule la dérivée de l'état du moteur à partir de l'état et des paramètres du moteur
-//! La dérivée est calculée par unité de temps (dt = 1)
-//!
-//! @param x etat du moteur (i, w, theta)
-//! @param dx réponse : dérivée de l'état par unité de temps
-static void atlantronic_motor_compute_dx(struct atlantronic_motor* motor, double *x, double* dx)
-{
-	// di/dt = ( u - ri - kw ) / L
-	dx[0] = ( motor->gain_pwm * motor->pwm - motor->r * x[0] - motor->k * x[1]) / motor->l;
-
-	// dw/dt = (ki - cp - fw) / J (ou 0 en cas de bloquage)
-	dx[1] = (motor->k * x[0] - motor->cp - motor->f * x[1]) / motor->j;
-	if( motor->block )
-	{
-		dx[1] = 0;
-	}
-
-	// dtheta/dt = w
-	dx[2] = motor->red * x[1];
+	motor->uToRpmGain = 3000/24.0;
 }
 
-static void atlantronic_motor_update(struct atlantronic_motor* motor)
-{
-	int i = 0;
-	int j = 0;
-	double te = 0.1f / CONTROL_HZ;
-	double X[3] = { motor->i, motor->w, motor->theta};
-	double x[3];
-	double k1[3];
-	double k2[3];
-	double k3[3];
-	double k4[3];
-
-	motor->i_old = motor->i;
-	motor->w_old = motor->w;
-	motor->theta_old = motor->theta;
-
-	// bloquage du moteur
-	if( motor->block )
-	{
-		X[1] = 0;
-	}
-
-	for(i = 0; i < 10; i++)
-	{
-		// intégration runge-kutta 4
-		atlantronic_motor_compute_dx(motor, X, k1);
-		for(j=0; j<3; j++)
-		{
-			x[j] = X[j] + k1[j] * te / 2;
-			x[0] = sat(x[0], -motor->i_max, motor->i_max);
-		}
-
-		atlantronic_motor_compute_dx(motor, x, k2);
-		for(j=0; j<3; j++)
-		{
-			x[j] = X[j] + k2[j] * te / 2;
-			x[0] = sat(x[0], -motor->i_max, motor->i_max);
-		}
-
-		atlantronic_motor_compute_dx(motor, x, k3);
-		for(j=0; j<3; j++)
-		{
-			x[j] = X[j] + k3[j] * te;
-			x[0] = sat(x[0], -motor->i_max, motor->i_max);
-		}
-
-		atlantronic_motor_compute_dx(motor, x, k4);
-		for(j=0; j<3; j++)
-		{
-			X[j] += (k1[j] + 2* k2[j] + 2*k3[j] + k4[j]) * te / 6.0f;
-			X[0] = sat(X[0], -motor->i_max, motor->i_max);
-		}
-	}
-
-	motor->i = X[0];
-	motor->w = X[1];
-	motor->theta = fmod(X[2], 2 * M_PI * 65536 / (1<< PARAM_ENCODERS_BIT_RES));
-}
-
-static void atlantronic_motor_cancel_update(struct atlantronic_motor* motor)
-{
-	motor->i = motor->i_old;
-	motor->w = motor->w_old;
-	motor->theta = motor->theta_old;
-}
-#endif
 static void atlantronic_model_reset(struct atlantronic_model_state* s)
 {
 	int i = 0;
+
+	s->robotParameters.odoWheel1Radius = 39.7;
+	s->robotParameters.odoWheel2Radius = 39.7;
+	s->robotParameters.odoWheel1Way = 1;
+	s->robotParameters.odoWheel2Way = -1;
+	s->robotParameters.odoEncoderResolution = 4096;
+	s->robotParameters.voieOdo = 110;
+	s->robotParameters.voieMot = 164;
+	s->robotParameters.driving1WheelRaduis = 100;
+	s->robotParameters.driving2WheelRaduis = 100;
+	s->robotParameters.motorEncoderResolution = 1024;
+	s->robotParameters.drivingMotor1Red = -5.2*88/25.0f;
+	s->robotParameters.drivingMotor2Red = 5.2*88/25.0f;
 
 	s->pos_robot.x = 0;
 	s->pos_robot.y = 0;
@@ -302,95 +154,13 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	atlantronic_omron_init(&s->omron[2], &s->irq[MODEL_IRQ_OUT_GPIO_3], pos_omron[2], REAR_OMRON_RANGE, OBJECT_SEEN_BY_OMRON, 1);
 	atlantronic_omron_init(&s->omron[3], &s->irq[MODEL_IRQ_OUT_GPIO_4], pos_omron[3], 100, OBJECT_SEEN_BY_OMRON, 0);
 
-	float outputGain = 2 * M_PI * DRIVING1_WHEEL_RADIUS / (float)(MIP_MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING1_RED);
+	float outputGain = 2 * M_PI * s->robotParameters.driving1WheelRaduis / (float)(s->robotParameters.motorEncoderResolution * s->robotParameters.drivingMotor1Red);
 	atlantronic_can_motor_mip_init(&s->can_motor[0], 1, outputGain, 0, &s->can);
 
-	outputGain = 2 * M_PI * DRIVING2_WHEEL_RADIUS / (float)(MIP_MOTOR_ENCODER_RESOLUTION * MOTOR_DRIVING2_RED);
+	outputGain = 2 * M_PI * s->robotParameters.driving2WheelRaduis / (float)(s->robotParameters.motorEncoderResolution * s->robotParameters.drivingMotor2Red);
 	atlantronic_can_motor_mip_init(&s->can_motor[1], 2, outputGain, 0, &s->can);
 }
 
-#if 0
-static void atlantronic_model_compute(struct atlantronic_model_state* s)
-{
-	int i = 0;
-
-	// test avec moteurs non bloques
-	s->motor[0].block = 0;
-	s->motor[1].block = 0;
-	atlantronic_motor_update(&s->motor[0]);
-	atlantronic_motor_update(&s->motor[1]);
-
-	float v1 = s->motor[0].w * s->motor[0].red * PARAM_RIGHT_ODO_WHEEL_RADIUS_FX / 65536.0f;
-	float v2 = s->motor[1].w * s->motor[1].red * PARAM_LEFT_ODO_WHEEL_RADIUS_FX / 65536.0f;
-	struct atlantronic_vect3 pos_new = s->pos;
-
-	s->v = (v1 + v2) / 2;
-	s->w = ((v1 - v2) * PARAM_INVERTED_VOIE_FX39) / ((uint64_t)1 << 39);
-	pos_new.x += s->v * s->pos.ca / CONTROL_HZ;
-	pos_new.y += s->v * s->pos.sa / CONTROL_HZ;
-	pos_new.alpha += s->w / CONTROL_HZ;
-	pos_new.ca = cos(pos_new.alpha);
-	pos_new.sa = sin(pos_new.alpha);
-
-#if 0
-	if( fabs(s->v) > 0.01 || fabs(s->w) > 0.00001)
-	{
-		printf("%.2f %.2f %.2f v %.2f w %f\n", s->pos.x, s->pos.y, s->pos.alpha, s->v, s->w);
-	}
-#endif
-
-	struct atlantronic_vect2 corner_abs_old[CORNER_NUM];
-	struct atlantronic_vect2 corner_abs_new[CORNER_NUM];
-	int res = -1;
-
-	for(i = 0; i < CORNER_NUM && res; i++)
-	{
-		int j = 0;
-		atlantronic_vect2_loc_to_abs(&s->pos, &corner_loc[i], &corner_abs_old[i]);
-		atlantronic_vect2_loc_to_abs(&pos_new, &corner_loc[i], &corner_abs_new[i]);
-		struct atlantronic_vect2 h;
-
-		for(j = 0; j < atlantronic_static_obj_count && res ; j++)
-		{
-			int k = 0;
-			for(k = 0; k < atlantronic_static_obj[j].size - 1 && res ; k++)
-			{
-				res = atlantronic_segment_intersection(atlantronic_static_obj[j].pt[k], atlantronic_static_obj[j].pt[k+1], corner_abs_old[i], corner_abs_new[i], &h);
-			}
-		}
-	}
-
-	if( ! res )
-	{
-		s->motor[0].block = 1;
-		s->motor[1].block = 1;
-
-		// bloquage d'un des moteurs, on refait le calcul
-		atlantronic_motor_cancel_update(&s->motor[0]);
-		atlantronic_motor_cancel_update(&s->motor[1]);
-		atlantronic_motor_update(&s->motor[0]);
-		atlantronic_motor_update(&s->motor[1]);
-
-		pos_new = s->pos;
-		s->v = 0;
-		s->w = 0;
-	}
-
-	s->pos = pos_new;
-	s->enc[0] = s->motor[0].theta * (1<< PARAM_ENCODERS_BIT_RES) / (2 * M_PI);
-	s->enc[0] -= (floor((s->enc[0] - 65536) / 65536) + 1 ) * 65536;
-	s->enc[1] = s->motor[1].theta * (1<< PARAM_ENCODERS_BIT_RES) / (2 * M_PI);
-	s->enc[1] -= (floor((s->enc[1] - 65536) / 65536) + 1 ) * 65536;
-
-	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ENCODER_RIGHT], ((int32_t) s->enc[0])&0xffff );
-	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ENCODER_LEFT], ((int32_t) s->enc[1])&0xffff );
-	qemu_set_irq(s->irq[MODEL_IRQ_OUT_I_RIGHT], ((int32_t) fabs(s->motor[0].i / s->motor[0].i_max * 65536))&0xffff );
-	qemu_set_irq(s->irq[MODEL_IRQ_OUT_I_LEFT], ((int32_t) fabs(s->motor[1].i / s->motor[1].i_max * 65536))&0xffff );
-	qemu_set_irq(s->irq[MODEL_IRQ_OUT_X], (int32_t)(s->pos.x * 65536.0f));
-	qemu_set_irq(s->irq[MODEL_IRQ_OUT_Y], (int32_t)(s->pos.y * 65536.0f));
-	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ALPHA], (int32_t)(s->pos.alpha / (2 * M_PI) * (1<<26)));
-}
-#endif
 static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 {
 	struct atlantronic_model_state *s = opaque;
@@ -478,15 +248,15 @@ static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
 
 static int atlantronic_model_can_receive(void *opaque)
 {
-	return sizeof(struct atlantronic_model_rx_event);
+	return sizeof(QemuAtlantronicModelEvent);
 }
 
 static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size)
 {
 	struct atlantronic_model_state* model = opaque;
-	struct atlantronic_model_rx_event* event = (struct atlantronic_model_rx_event*) buf;
+	QemuAtlantronicModelEvent* event = (QemuAtlantronicModelEvent*) buf;
 
-	if(size != sizeof(struct atlantronic_model_rx_event))
+	if(size != sizeof(QemuAtlantronicModelEvent))
 	{
 		hw_error("atlantronic_model_receive - incorrect size");
 	}
@@ -499,8 +269,8 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 		case EVENT_MOVE_OBJECT:
 			atlantronic_move_object(event->data[0], *((struct atlantronic_vect2*)&event->data[1]), *((struct atlantronic_vect3*)&event->data[1+sizeof(struct atlantronic_vect2)]));
 			break;
-		case EVENT_MANAGE_CANOPEN_NODE:
-//			atlantronic_canopen_manage_node_connextion(&model->canopen, event->data32[0], event->data32[1] == EVENT_MANAGE_CANOPEN_NODE_CONNECT ? 1 : 0);
+		case EVENT_MANAGE_CAN_MOTOR:
+//			atlantronic_canopen_manage_node_connextion(&model->canopen, event->data32[0], event->data32[1] == EVENT_MANAGE_CAN_MOTOR_CONNECT ? 1 : 0);
 			break;
 		case EVENT_SET_IO:
 			if(event->data32[0] & GPIO_MASK_0) qemu_set_irq(model->irq[MODEL_IRQ_OUT_GPIO_0], event->data32[1]);
@@ -532,6 +302,11 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 				resume_all_vcpus();
 			}
 			break;
+		case EVENT_SET_ROBOT_PARAMETERS:
+			memcpy(&model->robotParameters, &event->data[0], sizeof(model->robotParameters));
+			model->can_motor[0].outputGain = 2 * M_PI * model->robotParameters.driving1WheelRaduis / (float)(model->robotParameters.motorEncoderResolution * model->robotParameters.drivingMotor1Red);
+			model->can_motor[1].outputGain = 2 * M_PI * model->robotParameters.driving2WheelRaduis / (float)(model->robotParameters.motorEncoderResolution * model->robotParameters.drivingMotor2Red);
+			break;
 	}
 }
 
@@ -543,9 +318,23 @@ static void atlantronic_model_event(void *opaque, int event)
 static void atlantronic_model_update_odometry(struct atlantronic_model_state *s, float dt)
 {
 	// calcul de la nouvelle position
-	s->npSpeed.x = 0.5 * (s->can_motor[0].v + s->can_motor[1].v);
+	float v1;
+	float v2;
+	if( s->robotParameters.canDrivingMotors )
+	{
+		v1 = s->can_motor[0].v;
+		v2 = s->can_motor[1].v;
+	}
+	else
+	{
+		v1 = s->motor[0].pwm * s->motor[0].gain_pwm * s->motor[0].uToRpmGain / 60.0f * 2 * M_PI * s->robotParameters.driving1WheelRaduis / s->robotParameters.drivingMotor1Red;
+		v2 = s->motor[1].pwm * s->motor[1].gain_pwm * s->motor[1].uToRpmGain / 60.0f * 2 * M_PI * s->robotParameters.driving2WheelRaduis / s->robotParameters.drivingMotor2Red;
+	}
+
+	s->npSpeed.x = 0.5 * (v1 + v2);
 	s->npSpeed.y = 0;
-	s->npSpeed.theta = (s->can_motor[1].v - s->can_motor[0].v) / VOIE_MOT;
+	s->npSpeed.theta = (v2 - v1) / s->robotParameters.voieMot;
+
 	struct atlantronic_vect3 npSpeedAbs = atlantronic_vect3_loc_to_abs_speed(s->pos_robot.theta, &s->npSpeed);
 
 	struct atlantronic_vect3 pos_new = s->pos_robot;
@@ -623,12 +412,12 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 
 	// mise a jour des codeurs
 	float v[2];
-	v[0] = s->npSpeed.x - 0.5 * VOIE_ODO * s->npSpeed.theta;
-	v[1] = s->npSpeed.x + 0.5 * VOIE_ODO * s->npSpeed.theta;
+	v[0] = s->npSpeed.x - 0.5 * s->robotParameters.voieOdo * s->npSpeed.theta;
+	v[1] = s->npSpeed.x + 0.5 * s->robotParameters.voieOdo * s->npSpeed.theta;
 
-	s->encoder[0] += ODO1_WAY * v[0] * dt * ODO_ENCODER_RESOLUTION / (2 * M_PI * ODO1_WHEEL_RADIUS) ;
+	s->encoder[0] += s->robotParameters.odoWheel1Way * v[0] * dt * s->robotParameters.odoEncoderResolution / (2 * M_PI * s->robotParameters.odoWheel1Radius) ;
 	s->encoder[0] -= (floor((s->encoder[0] - 65536) / 65536) + 1 ) * 65536;
-	s->encoder[1] += ODO2_WAY * v[1] * dt * ODO_ENCODER_RESOLUTION / (2 * M_PI * ODO2_WHEEL_RADIUS) ;
+	s->encoder[1] += s->robotParameters.odoWheel2Way * v[1] * dt * s->robotParameters.odoEncoderResolution / (2 * M_PI * s->robotParameters.odoWheel2Radius) ;
 	s->encoder[1] -= (floor((s->encoder[1] - 65536) / 65536) + 1 ) * 65536;
 	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ENCODER1], ((int32_t) s->encoder[0])&0xffff );
 	qemu_set_irq(s->irq[MODEL_IRQ_OUT_ENCODER2], ((int32_t) s->encoder[1])&0xffff );
