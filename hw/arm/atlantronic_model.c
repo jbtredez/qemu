@@ -15,6 +15,7 @@
 #define __disco__
 #include "disco/robot_parameters.h"
 #include "kernel/rcc.h"
+#include "kernel/can/can_id.h"
 #define LINUX
 #include "kernel/driver/io.h"
 #undef LINUX
@@ -155,10 +156,10 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	atlantronic_omron_init(&s->omron[3], &s->irq[MODEL_IRQ_OUT_GPIO_4], pos_omron[3], 100, OBJECT_SEEN_BY_OMRON, 0);
 
 	float outputGain = 2 * M_PI * s->robotParameters.driving1WheelRaduis / (float)(s->robotParameters.motorEncoderResolution * s->robotParameters.drivingMotor1Red);
-	atlantronic_can_motor_mip_init(&s->can_motor[0], 1, outputGain, 0, &s->can);
+	atlantronic_can_motor_mip_init(&s->can_motor[0], CAN_MOTOR_LEFT_NODEID, outputGain, 0, &s->can);
 
 	outputGain = 2 * M_PI * s->robotParameters.driving2WheelRaduis / (float)(s->robotParameters.motorEncoderResolution * s->robotParameters.drivingMotor2Red);
-	atlantronic_can_motor_mip_init(&s->can_motor[1], 2, outputGain, 0, &s->can);
+	atlantronic_can_motor_mip_init(&s->can_motor[1], CAN_MOTOR_RIGHT_NODEID, outputGain, 0, &s->can);
 }
 
 static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
