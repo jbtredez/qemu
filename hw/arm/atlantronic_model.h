@@ -97,6 +97,8 @@ typedef struct
 	float drivingMotor1Red;
 	float drivingMotor2Red;
 	uint16_t canDrivingMotors;
+	float halfLength;
+	float halfWidth;
 } __attribute__((packed)) QemuRobotParameters;
 
 #endif

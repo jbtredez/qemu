@@ -1,3 +1,4 @@
+#include <math.h>
 #include "hw/sysbus.h"
 #include "hw/boards.h"
 #include "hw/arm/arm.h"
@@ -13,8 +14,8 @@
 #include "atlantronic_omron.h"
 
 #define __disco__
-#include "disco/robot_parameters.h"
 #include "kernel/rcc.h"
+#include "disco/robot_parameters.h"
 #include "kernel/can/can_id.h"
 #define LINUX
 #include "kernel/driver/io.h"
@@ -65,7 +66,7 @@ static void atlantronic_motor_init(struct atlantronic_motor* motor)
 {
 	motor->pwm  = 0;
 	motor->gain_pwm = 24.0f;
-	motor->uToRpmGain = 3000/24.0;
+	motor->uToRpmGain = 163.5/3;
 }
 
 static void atlantronic_model_reset(struct atlantronic_model_state* s)
@@ -133,17 +134,18 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 		atlantronic_motor_init(&s->motor[i]);
 	}
 
+
 	struct atlantronic_vect3 pos_omron[OMRON_NUM];
-	pos_omron[0].x = PARAM_NP_X;
+	pos_omron[0].x = -s->robotParameters.halfLength;
 	pos_omron[0].y = 0;
 	pos_omron[0].theta = M_PI;
 
-	pos_omron[1].x = PARAM_NP_X;
-	pos_omron[1].y = PARAM_LEFT_CORNER_Y;
+	pos_omron[1].x = -s->robotParameters.halfLength;
+	pos_omron[1].y = s->robotParameters.halfWidth;
 	pos_omron[1].theta = M_PI;
 
-	pos_omron[2].x = PARAM_NP_X;
-	pos_omron[2].y = PARAM_RIGHT_CORNER_Y;
+	pos_omron[2].x = -s->robotParameters.halfLength;
+	pos_omron[2].y = -s->robotParameters.halfWidth;
 	pos_omron[2].theta = M_PI;
 
 	pos_omron[3].x = 100;
@@ -376,8 +378,8 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 	int j;
 	struct atlantronic_vect2 a;// = {s->pos_robot.x, s->pos_robot.y};
 	struct atlantronic_vect2 b;// = {pos_new.x, pos_new.y};
-	struct atlantronic_vect2 aLoc = {PARAM_LEFT_CORNER_X/2, 0};
-	struct atlantronic_vect2 bLoc = {PARAM_LEFT_CORNER_X/2, 0};
+	struct atlantronic_vect2 aLoc = {0, 0};
+	struct atlantronic_vect2 bLoc = {0, 0};
 	atlantronic_vect2_loc_to_abs(&s->pos_robot, &aLoc, &a);
 	atlantronic_vect2_loc_to_abs(&pos_new, &bLoc, &b);
 	for(j = 0; j < atlantronic_static_obj_count && res ; j++)
@@ -389,7 +391,7 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 			for(k = 0; k < atlantronic_static_obj[j].polyline.size - 1 && res ; k++)
 			{
 				float d = atlantronic_segment_distance(atlantronic_static_obj[j].polyline.pt[k], atlantronic_static_obj[j].polyline.pt[k+1], a, b);
-				if( d < PARAM_LEFT_CORNER_Y )
+				if( d < s->robotParameters.halfWidth )
 				{
 					res = 0;
 				}
