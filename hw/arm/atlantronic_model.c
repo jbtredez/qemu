@@ -21,6 +21,8 @@
 #include "kernel/driver/io.h"
 #undef LINUX
 
+//#define USE_OMRON
+
 #define MODEL_DT           0.001f       //!< modele a 1ms
 
 #define PWM_NUM            4
@@ -134,7 +136,7 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 		atlantronic_motor_init(&s->motor[i]);
 	}
 
-
+#ifdef USE_OMRON
 	struct atlantronic_vect3 pos_omron[OMRON_NUM];
 	pos_omron[0].x = -s->robotParameters.halfLength;
 	pos_omron[0].y = 0;
@@ -156,6 +158,7 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	atlantronic_omron_init(&s->omron[1], &s->irq[MODEL_IRQ_OUT_GPIO_2], pos_omron[1], REAR_OMRON_RANGE, OBJECT_SEEN_BY_OMRON, 1);
 	atlantronic_omron_init(&s->omron[2], &s->irq[MODEL_IRQ_OUT_GPIO_3], pos_omron[2], REAR_OMRON_RANGE, OBJECT_SEEN_BY_OMRON, 1);
 	atlantronic_omron_init(&s->omron[3], &s->irq[MODEL_IRQ_OUT_GPIO_4], pos_omron[3], 100, OBJECT_SEEN_BY_OMRON, 0);
+#endif
 
 	float outputGain = 2 * M_PI * s->robotParameters.driving1WheelRaduis / (float)(s->robotParameters.motorEncoderResolution * s->robotParameters.drivingMotor1Red);
 	atlantronic_can_motor_mip_init(&s->can_motor[0], CAN_MOTOR_LEFT_NODEID, outputGain, 0, &s->can);
@@ -456,11 +459,14 @@ static void atlantronic_model_systick_cb(void* arg)
 		s->hokuyo[i].pos_robot = s->pos_robot;
 	}
 
+
+#ifdef USE_OMRON
 	// mise a jour des omron
 	for(i = 0; i < OMRON_NUM; i++)
 	{
 		atlantronic_omron_update(&s->omron[i], s->pos_robot);
 	}
+#endif
 
 	s->cycle_count++;
 }
