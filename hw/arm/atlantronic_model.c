@@ -87,6 +87,12 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	s->robotParameters.motorEncoderResolution = 1024;
 	s->robotParameters.drivingMotor1Red = -5.2*88/25.0f;
 	s->robotParameters.drivingMotor2Red = 5.2*88/25.0f;
+	s->robotParameters.hokuyo1_x = 0;
+	s->robotParameters.hokuyo1_y = 0;
+	s->robotParameters.hokuyo1_theta = 0;
+	s->robotParameters.hokuyo2_x = 0;
+	s->robotParameters.hokuyo2_y = 0;
+	s->robotParameters.hokuyo2_theta = 0;
 
 	s->pos_robot.x = 0;
 	s->pos_robot.y = 0;
@@ -113,12 +119,12 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	}
 
 	struct atlantronic_vect3 pos_hokuyo[HOKUYO_NUM];
-	pos_hokuyo[0].x = 0;
-	pos_hokuyo[0].y = 0;
-	pos_hokuyo[0].theta = 0;
-	pos_hokuyo[1].x = 0;
-	pos_hokuyo[1].y = 0;
-	pos_hokuyo[1].theta = 0;
+	pos_hokuyo[0].x = s->robotParameters.hokuyo1_x;
+	pos_hokuyo[0].y = s->robotParameters.hokuyo1_y;
+	pos_hokuyo[0].theta = s->robotParameters.hokuyo1_theta;
+	pos_hokuyo[1].x = s->robotParameters.hokuyo2_x;
+	pos_hokuyo[1].y = s->robotParameters.hokuyo2_y;
+	pos_hokuyo[1].theta = s->robotParameters.hokuyo2_theta;
 	for(i = 0; i < HOKUYO_NUM; i++)
 	{
 		atlantronic_hokuyo_init(&s->hokuyo[i], &s->irq[MODEL_IRQ_OUT_USART_HOKUYO1+i], pos_hokuyo[i]);
@@ -312,6 +318,12 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 			memcpy(&model->robotParameters, &event->data[0], sizeof(model->robotParameters));
 			model->can_motor[0].outputGain = 2 * M_PI * model->robotParameters.driving1WheelRaduis / (float)(model->robotParameters.motorEncoderResolution * model->robotParameters.drivingMotor1Red);
 			model->can_motor[1].outputGain = 2 * M_PI * model->robotParameters.driving2WheelRaduis / (float)(model->robotParameters.motorEncoderResolution * model->robotParameters.drivingMotor2Red);
+			model->hokuyo[0].pos_hokuyo.x = model->robotParameters.hokuyo1_x;
+			model->hokuyo[0].pos_hokuyo.y = model->robotParameters.hokuyo1_y;
+			model->hokuyo[0].pos_hokuyo.theta = model->robotParameters.hokuyo1_theta;
+			model->hokuyo[1].pos_hokuyo.x = model->robotParameters.hokuyo2_x;
+			model->hokuyo[1].pos_hokuyo.y = model->robotParameters.hokuyo2_y;
+			model->hokuyo[1].pos_hokuyo.theta = model->robotParameters.hokuyo2_theta;
 			break;
 	}
 }

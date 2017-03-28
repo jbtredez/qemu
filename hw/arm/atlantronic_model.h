@@ -99,6 +99,12 @@ typedef struct
 	uint16_t canDrivingMotors;
 	float halfLength;
 	float halfWidth;
+	float hokuyo1_x;
+	float hokuyo1_y;
+	float hokuyo1_theta;
+	float hokuyo2_x;
+	float hokuyo2_y;
+	float hokuyo2_theta;
 } __attribute__((packed)) QemuRobotParameters;
 
 #endif

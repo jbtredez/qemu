@@ -47,8 +47,9 @@ static void atlantronic_hokuyo_update(struct atlantronic_hokuyo_state* s)
 
 	for(i = 0; i < HOKUYO_MAX_MES; i++)
 	{
-		b.x = a.x + HOKUYO_MAX_DISTANCE * cos(hokuyo_pos_abs.theta + (i - HOKUYO_MED) * HOKUYO_RES);
-		b.y = a.y + HOKUYO_MAX_DISTANCE * sin(hokuyo_pos_abs.theta + (i - HOKUYO_MED) * HOKUYO_RES);
+		float theta = hokuyo_pos_abs.theta + (i - HOKUYO_MED) * HOKUYO_RES;
+		b.x = a.x + HOKUYO_MAX_DISTANCE * cos(theta);
+		b.y = a.y + HOKUYO_MAX_DISTANCE * sin(theta);
 		dist_min = HOKUYO_MAX_DISTANCE;
 
 		for(j = 0; j < atlantronic_static_obj_count; j++)
