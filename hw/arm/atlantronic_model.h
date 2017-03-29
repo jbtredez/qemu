@@ -91,11 +91,10 @@ typedef struct
 	uint16_t odoEncoderResolution;
 	float voieOdo;
 	float voieMot;
-	float driving1WheelRaduis;
-	float driving2WheelRaduis;
-	uint32_t motorEncoderResolution;
-	float drivingMotor1Red;
-	float drivingMotor2Red;
+	float driving1InputGain;
+	float driving1OutputGain;
+	float driving2InputGain;
+	float driving2OutputGain;
 	uint16_t canDrivingMotors;
 	float halfLength;
 	float halfWidth;

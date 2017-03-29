@@ -36,8 +36,6 @@
 struct atlantronic_motor
 {
 	float pwm;         //!< pwm
-	float gain_pwm;    //!< gain entre la pwm et u (V)
-	float uToRpmGain;  //!< gain de conversion entre u (V) et la vitesse du moteur en rpm
 };
 
 struct atlantronic_model_state
@@ -67,8 +65,6 @@ struct atlantronic_model_state
 static void atlantronic_motor_init(struct atlantronic_motor* motor)
 {
 	motor->pwm  = 0;
-	motor->gain_pwm = 24.0f;
-	motor->uToRpmGain = 163.5/3;
 }
 
 static void atlantronic_model_reset(struct atlantronic_model_state* s)
@@ -82,11 +78,10 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	s->robotParameters.odoEncoderResolution = 4096;
 	s->robotParameters.voieOdo = 110;
 	s->robotParameters.voieMot = 164;
-	s->robotParameters.driving1WheelRaduis = 100;
-	s->robotParameters.driving2WheelRaduis = 100;
-	s->robotParameters.motorEncoderResolution = 1024;
-	s->robotParameters.drivingMotor1Red = -5.2*88/25.0f;
-	s->robotParameters.drivingMotor2Red = 5.2*88/25.0f;
+	s->robotParameters.driving1InputGain = 1;
+	s->robotParameters.driving1OutputGain = 1;
+	s->robotParameters.driving2InputGain = 1;
+	s->robotParameters.driving2OutputGain = 1;
 	s->robotParameters.hokuyo1_x = 0;
 	s->robotParameters.hokuyo1_y = 0;
 	s->robotParameters.hokuyo1_theta = 0;
@@ -166,11 +161,8 @@ static void atlantronic_model_reset(struct atlantronic_model_state* s)
 	atlantronic_omron_init(&s->omron[3], &s->irq[MODEL_IRQ_OUT_GPIO_4], pos_omron[3], 100, OBJECT_SEEN_BY_OMRON, 0);
 #endif
 
-	float outputGain = 2 * M_PI * s->robotParameters.driving1WheelRaduis / (float)(s->robotParameters.motorEncoderResolution * s->robotParameters.drivingMotor1Red);
-	atlantronic_can_motor_mip_init(&s->can_motor[0], CAN_MOTOR_LEFT_NODEID, outputGain, 0, &s->can);
-
-	outputGain = 2 * M_PI * s->robotParameters.driving2WheelRaduis / (float)(s->robotParameters.motorEncoderResolution * s->robotParameters.drivingMotor2Red);
-	atlantronic_can_motor_mip_init(&s->can_motor[1], CAN_MOTOR_RIGHT_NODEID, outputGain, 0, &s->can);
+	atlantronic_can_motor_mip_init(&s->can_motor[0], CAN_MOTOR_LEFT_NODEID, s->robotParameters.driving1OutputGain, 0, &s->can);
+	atlantronic_can_motor_mip_init(&s->can_motor[1], CAN_MOTOR_RIGHT_NODEID, s->robotParameters.driving2OutputGain, 0, &s->can);
 }
 
 static void atlantronic_model_in_recv(void * opaque, int numPin, int level)
@@ -316,8 +308,8 @@ static void atlantronic_model_receive(void *opaque, const uint8_t* buf, int size
 			break;
 		case EVENT_SET_ROBOT_PARAMETERS:
 			memcpy(&model->robotParameters, &event->data[0], sizeof(model->robotParameters));
-			model->can_motor[0].outputGain = 2 * M_PI * model->robotParameters.driving1WheelRaduis / (float)(model->robotParameters.motorEncoderResolution * model->robotParameters.drivingMotor1Red);
-			model->can_motor[1].outputGain = 2 * M_PI * model->robotParameters.driving2WheelRaduis / (float)(model->robotParameters.motorEncoderResolution * model->robotParameters.drivingMotor2Red);
+			model->can_motor[0].outputGain = model->robotParameters.driving1OutputGain;
+			model->can_motor[1].outputGain = model->robotParameters.driving2OutputGain;
 			model->hokuyo[0].pos_hokuyo.x = model->robotParameters.hokuyo1_x;
 			model->hokuyo[0].pos_hokuyo.y = model->robotParameters.hokuyo1_y;
 			model->hokuyo[0].pos_hokuyo.theta = model->robotParameters.hokuyo1_theta;
@@ -345,8 +337,8 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 	}
 	else
 	{
-		v1 = s->motor[0].pwm * s->motor[0].gain_pwm * s->motor[0].uToRpmGain / 60.0f * 2 * M_PI * s->robotParameters.driving1WheelRaduis / s->robotParameters.drivingMotor1Red;
-		v2 = s->motor[1].pwm * s->motor[1].gain_pwm * s->motor[1].uToRpmGain / 60.0f * 2 * M_PI * s->robotParameters.driving2WheelRaduis / s->robotParameters.drivingMotor2Red;
+		v1 = s->motor[0].pwm *24 / s->robotParameters.driving1InputGain;
+		v2 = s->motor[1].pwm *24 / s->robotParameters.driving2InputGain;
 	}
 
 	s->npSpeed.x = 0.5 * (v1 + v2);
