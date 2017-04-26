@@ -82,6 +82,8 @@ typedef struct
 	};
 } QemuAtlantronicModelEvent;
 
+#define CORNER_NUM          4
+
 typedef struct
 {
 	float odoWheel1Radius;
@@ -96,8 +98,7 @@ typedef struct
 	float driving2InputGain;
 	float driving2OutputGain;
 	uint16_t canDrivingMotors;
-	float halfLength;
-	float halfWidth;
+	float corner[2*CORNER_NUM];
 	float hokuyo1_x;
 	float hokuyo1_y;
 	float hokuyo1_theta;

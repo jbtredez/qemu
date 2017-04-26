@@ -2,7 +2,6 @@
 #define ATLANTRONIC_TOOLS_H
 
 #define EPSILON       0.00001f
-#define CORNER_NUM          4
 #define STATIC_OBJ_MAX    100
 
 struct atlantronic_vect2
@@ -50,7 +49,6 @@ void atlantronic_add_object(int flags, int size, struct atlantronic_vect2* pt);
 
 void atlantronic_move_object(int id, struct atlantronic_vect2 origin, struct atlantronic_vect3 delta);
 
-extern const struct atlantronic_vect2 corner_loc[CORNER_NUM];
 extern struct atlantronic_object atlantronic_static_obj[STATIC_OBJ_MAX];
 extern int atlantronic_static_obj_count;
 

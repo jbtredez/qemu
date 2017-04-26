@@ -353,7 +353,6 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 	pos_new.theta += npSpeedAbs.theta * dt;
 
 	// detection collisions
-#if 0
 	struct atlantronic_vect2 corner_abs_old[CORNER_NUM];
 	struct atlantronic_vect2 corner_abs_new[CORNER_NUM];
 	int res = -1;
@@ -362,8 +361,9 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 	for(i = 0; i < CORNER_NUM && res; i++)
 	{
 		int j = 0;
-		atlantronic_vect2_loc_to_abs(&s->pos_robot, &corner_loc[i], &corner_abs_old[i]);
-		atlantronic_vect2_loc_to_abs(&pos_new, &corner_loc[i], &corner_abs_new[i]);
+		struct atlantronic_vect2 ci = {s->robotParameters.corner[2*i], s->robotParameters.corner[2*i+1] };
+		atlantronic_vect2_loc_to_abs(&s->pos_robot, &ci, &corner_abs_old[i]);
+		atlantronic_vect2_loc_to_abs(&pos_new, &ci, &corner_abs_new[i]);
 		struct atlantronic_vect2 h;
 
 		for(j = 0; j < atlantronic_static_obj_count && res ; j++)
@@ -380,32 +380,7 @@ static void atlantronic_model_update_odometry(struct atlantronic_model_state *s,
 			}
 		}
 	}
-#else
-	int res = -1;
-	int j;
-	struct atlantronic_vect2 a;// = {s->pos_robot.x, s->pos_robot.y};
-	struct atlantronic_vect2 b;// = {pos_new.x, pos_new.y};
-	struct atlantronic_vect2 aLoc = {0, 0};
-	struct atlantronic_vect2 bLoc = {0, 0};
-	atlantronic_vect2_loc_to_abs(&s->pos_robot, &aLoc, &a);
-	atlantronic_vect2_loc_to_abs(&pos_new, &bLoc, &b);
-	for(j = 0; j < atlantronic_static_obj_count && res ; j++)
-	{
-		// on regarde uniquement les objets consideres comme fixe
-		if( ! (atlantronic_static_obj[j].flags & OBJECT_MOBILE) )
-		{
-			int k = 0;
-			for(k = 0; k < atlantronic_static_obj[j].polyline.size - 1 && res ; k++)
-			{
-				float d = atlantronic_segment_distance(atlantronic_static_obj[j].polyline.pt[k], atlantronic_static_obj[j].polyline.pt[k+1], a, b);
-				if( d < s->robotParameters.halfWidth )
-				{
-					res = 0;
-				}
-			}
-		}
-	}
-#endif
+
 	if( ! res )
 	{
 		// bloquage d'un des moteurs - TODO : on refait le calcul pour bloquer les moteurs
